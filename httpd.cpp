@@ -7,6 +7,8 @@
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
+// g++ httpd.cpp -static-libstdc++ -static-libgcc -pthread -Wl,-Bstatic -lboost_system -lboost_thread -lboost_filesystem -lboost_coroutine -lboost_context -o httpd
+//
 
 #include <cstdlib>
 #include <iostream>
@@ -197,6 +199,7 @@ protected:
 				if (ec)
 				{
 					std::cout << "http " << this << " error: " << ec.message() << std::endl;
+					buffer_signal.disconnect(write_func);
 					std::cout << "http " << this << " disconnect, num of slots "
 						<< buffer_signal.num_slots() << std::endl;
 					socket_.close(ec);
