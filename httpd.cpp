@@ -34,7 +34,7 @@ std::atomic_int once;
 using namespace boost::filesystem;
 using boost::asio::ip::tcp;
 
-const int max_length = 1024 * 512;
+const int max_length = 1024 * 1024 * 2;
 std::string filename;
 
 typedef boost::shared_ptr<tcp::socket> socket_ptr;
@@ -184,12 +184,11 @@ protected:
 					return;
 				}
 				std::istream& is = file;
-				std::size_t length = 1024 * 1024 * 2;
-				char* buf = new char[length];
+				char* buf = new char[max_length];
 				std::unique_ptr<char> bufptr(buf);
 				for (; !is.eof();)
 				{
-					is.read(buf, length);
+					is.read(buf, max_length);
 					auto size = is.gcount();
 					boost::asio::async_write(socket_,
 						boost::asio::buffer(buf, size), yield[ec]);
@@ -344,3 +343,4 @@ int main(int argc, char* argv[])
 
 	return 0;
 }
+
