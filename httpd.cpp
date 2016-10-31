@@ -44,6 +44,7 @@ struct buffer
 };
 
 typedef boost::shared_ptr<buffer> buffer_ptr;
+boost::mutex buffer_signal_mtu;
 boost::signals2::signal<void(buffer_ptr)> buffer_signal;
 typedef std::deque<buffer_ptr> buffer_queue;
 bool abort_read_pipe = false;
@@ -72,17 +73,23 @@ void read_file(std::string filename, Func& func)
 			auto buf = boost::make_shared<buffer>();
 			is.read(buf->buf.data(), max_length);
 			buf->size = is.gcount();
+			buffer_signal_mtu.lock();
 			buffer_signal(buf);
+			buffer_signal_mtu.unlock();
 		}
 
 		if (filename.empty())
 		{
 			abort_read_pipe = true;
+			buffer_signal_mtu.lock();
 			buffer_signal.disconnect_all_slots();
+			buffer_signal_mtu.unlock();
 		}
 		else
 		{
+			buffer_signal_mtu.lock();
 			buffer_signal.disconnect(func);
+			buffer_signal_mtu.unlock();
 		}
 	});
 }
@@ -166,7 +173,11 @@ protected:
 			auto write_func = boost::bind(&http_session::write_buffer, shared_from_this(), q, _1);
 			auto read_file_func = read_file<decltype(write_func)>;
 
-			buffer_signal.connect(write_func);
+			{
+				buffer_signal_mtu.lock();
+				buffer_signal.connect(write_func);
+				buffer_signal_mtu.unlock();
+			}
 			if (filename.empty())
 			{
 				if (once++ == 0)
@@ -199,7 +210,9 @@ protected:
 				if (ec)
 				{
 					std::cout << "http " << this << " error: " << ec.message() << std::endl;
+					buffer_signal_mtu.lock();
 					buffer_signal.disconnect(write_func);
+					buffer_signal_mtu.unlock();
 					std::cout << "http " << this << " disconnect, num of slots "
 						<< buffer_signal.num_slots() << std::endl;
 					socket_.close(ec);
