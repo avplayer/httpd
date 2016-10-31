@@ -116,7 +116,7 @@ protected:
 				if (timer_.expires_from_now() <= std::chrono::seconds(0) && socket_.is_open())
 				{
 					std::cout << "http " << this << " write data timeout!\n";
-					socket_.close(ignore_ec);
+					socket_.close(ignored_ec);
 					if (!keep_on_end && filename.empty() && abort_read_pipe)
 					{
 						strand_.get_io_service().stop();
