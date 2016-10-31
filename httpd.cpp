@@ -245,7 +245,7 @@ protected:
 		}
 
 		boost::mutex::scoped_lock lock(mutex_);
-		condition_.wait(lock, queue.empty());
+		condition_.wait(lock, boost::bind(&buffer_queue::empty, &queue));
 	}
 
 	void do_write(boost::shared_ptr<buffer_queue> q, boost::asio::yield_context yield)
