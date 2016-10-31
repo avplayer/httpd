@@ -196,7 +196,7 @@ protected:
 					if (ec)
 					{
 						std::cout << "http " << this
-							<< " write data error: " << ec.message();
+							<< " write data error: " << ec.message() << std::endl;
 						return;
 					}
 				}
