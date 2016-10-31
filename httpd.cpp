@@ -49,6 +49,7 @@ boost::mutex buffer_signal_mtu;
 boost::signals2::signal<void(buffer_ptr)> buffer_signal;
 typedef std::deque<buffer_ptr> buffer_queue;
 bool abort_read_pipe = false;
+bool keep_on_end = false;
 
 template <class Func>
 void read_file(std::string filename, Func& func)
@@ -121,7 +122,11 @@ protected:
 				if (timer_.expires_from_now() <= std::chrono::seconds(0) && socket_.is_open())
 				{
 					std::cout << "http " << this << " write data timeout!\n";
-					socket_.close();
+					socket_.close(ignore_ec);
+					if (!keep_on_end)
+					{
+						strand_.get_io_service().stop();
+					}
 				}
 			}
 		});
@@ -313,7 +318,7 @@ int main(int argc, char* argv[])
 	{
 		if (argc < 2)
 		{
-			std::cerr << "Usage: " << argv[0] << " <port> [file|pipe]\n";
+			std::cerr << "Usage: " << argv[0] << " <port> [keep] [file|pipe]\n";
 			return 1;
 		}
 
@@ -322,6 +327,11 @@ int main(int argc, char* argv[])
 
 		if (argc > 2)
 			filename = argv[2];
+		if (filename == "keep")
+		{
+			keep_on_end = true;
+			filename = "";
+		}
 
 		using namespace std; // For atoi.
 
