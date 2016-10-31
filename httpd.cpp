@@ -123,7 +123,7 @@ protected:
 				{
 					std::cout << "http " << this << " write data timeout!\n";
 					socket_.close(ignore_ec);
-					if (!keep_on_end)
+					if (!keep_on_end && filename.empty() && abort_read_pipe)
 					{
 						strand_.get_io_service().stop();
 					}
