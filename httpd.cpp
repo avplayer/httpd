@@ -55,20 +55,7 @@ void read_file(std::string filename, Func& func)
 {
 	boost::async(boost::launch::async, [filename, func]()
 	{
-		std::istream* isp = &std::cin;
-		std::ifstream file;
-		if (!filename.empty())
-		{
-			file.open(filename.c_str(), std::ios::binary);
-			if (file.bad())
-			{
-				std::cout << "Unable to open file " << filename << std::endl;
-				return;
-			}
-			isp = &file;
-		}
-		std::istream& is = *isp;
-
+		std::istream& is = std::cin;
 		for (; !is.eof();)
 		{
 			auto buf = boost::make_shared<buffer>();
@@ -120,6 +107,26 @@ public:
 	}
 
 protected:
+
+	void wait_for_close()
+	{
+		timer_.expires_from_now(std::chrono::seconds(5));
+		auto self = shared_from_this();
+		boost::asio::spawn(strand_, [this, self](boost::asio::yield_context yield)
+		{
+			while (socket_.is_open())
+			{
+				boost::system::error_code ignored_ec;
+				timer_.async_wait(yield[ignored_ec]);
+				if (timer_.expires_from_now() <= std::chrono::seconds(0) && socket_.is_open())
+				{
+					std::cout << "http " << this << " write data timeout!\n";
+					socket_.close();
+				}
+			}
+		});
+	}
+
 	void do_work(boost::asio::yield_context yield)
 	{
 		try
@@ -167,54 +174,69 @@ protected:
 			if (abort)
 				return;
 
-			auto q = boost::make_shared<buffer_queue>();
-			auto write_func = boost::bind(&http_session::write_buffer, shared_from_this(), q, _1);
-			auto read_file_func = read_file<decltype(write_func)>;
+			if (!filename.empty())
+			{
+				std::ifstream file;
+				file.open(filename.c_str(), std::ios::binary);
+				if (file.bad())
+				{
+					std::cout << "Unable to open file " << filename << std::endl;
+					return;
+				}
+				std::istream& is = file;
+				std::size_t length = 1024 * 1024 * 2;
+				char* buf = new char[length];
+				std::unique_ptr<char> bufptr(buf);
+				for (; !is.eof();)
+				{
+					is.read(buf, length);
+					auto size = is.gcount();
+					boost::asio::async_write(socket_,
+						boost::asio::buffer(buf, size), yield[ec]);
+					if (ec)
+					{
+						std::cout << "http " << this
+							<< " write data error: " << ec.message();
+						return;
+					}
+				}
 
-			{
-				boost::mutex::scoped_lock lock(buffer_signal_mtu);
-				buffer_signal.connect(write_func);
-			}
-			if (filename.empty())
-			{
-				if (once++ == 0)
-					read_file_func(filename, write_func);
+				wait_for_close();
+
+				return;
 			}
 			else
 			{
-				read_file_func(filename, write_func);
-			}
+				auto q = boost::make_shared<buffer_queue>();
+				auto write_func = boost::bind(&http_session::write_buffer, shared_from_this(), q, _1);
+				auto read_file_func = read_file<decltype(write_func)>;
 
-			timer_.expires_from_now(std::chrono::seconds(5));
-			auto self = shared_from_this();
-			boost::asio::spawn(strand_, [this, self](boost::asio::yield_context yield)
-			{
-				while (socket_.is_open())
 				{
-					boost::system::error_code ignored_ec;
-					timer_.async_wait(yield[ignored_ec]);
-					if (timer_.expires_from_now() <= std::chrono::seconds(0) && socket_.is_open())
-					{
-						std::cout << "http " << this << " write data timeout!\n";
-						socket_.close();
-					}
+					boost::mutex::scoped_lock lock(buffer_signal_mtu);
+					buffer_signal.connect(write_func);
 				}
-			});
 
-			while (true)
-			{
-				auto n = boost::asio::async_read(socket_, buf, yield[ec]);
-				if (ec)
+				if (once++ == 0)
+					read_file_func(filename, write_func);
+
+				wait_for_close();
+
+				while (true)
 				{
-					std::cout << "http " << this << " error: " << ec.message() << std::endl;
+					auto n = boost::asio::async_read(socket_, buf, yield[ec]);
+					if (ec)
 					{
-						boost::mutex::scoped_lock lock(buffer_signal_mtu);
-						buffer_signal.disconnect(write_func);
+						std::cout << "http " << this << " error: " << ec.message() << std::endl;
+						{
+							boost::mutex::scoped_lock lock(buffer_signal_mtu);
+							buffer_signal.disconnect(write_func);
+						}
+						std::cout << "http " << this << " disconnect, num of slots "
+							<< buffer_signal.num_slots() << std::endl;
+						socket_.close(ec);
+						return;
 					}
-					std::cout << "http " << this << " disconnect, num of slots "
-						<< buffer_signal.num_slots() << std::endl;
-					socket_.close(ec);
-					return;
+					buf.consume(n);
 				}
 			}
 		}
@@ -243,9 +265,6 @@ protected:
 						self, q, _1));
 			});
 		}
-
-		boost::mutex::scoped_lock lock(mutex_);
-		condition_.wait(lock, boost::bind(&buffer_queue::empty, &queue));
 	}
 
 	void do_write(boost::shared_ptr<buffer_queue> q, boost::asio::yield_context yield)
@@ -267,7 +286,6 @@ protected:
 			}
 			bq.pop_front();
 		}
-		condition_.notify_one();
 	}
 
 private:
@@ -275,8 +293,6 @@ private:
 	tcp::socket socket_;
 	boost::asio::steady_timer timer_;
 	std::size_t file_size_;
-	boost::mutex mutex_;
-	boost::condition condition_;
 };
 
 void do_accept(boost::asio::io_service& io_service,
