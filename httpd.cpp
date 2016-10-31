@@ -66,16 +66,10 @@ void read_file(std::string filename, Func& func)
 			buffer_signal(buf);
 		}
 
-		if (filename.empty())
 		{
 			abort_read_pipe = true;
 			boost::mutex::scoped_lock lock(buffer_signal_mtu);
 			buffer_signal.disconnect_all_slots();
-		}
-		else
-		{
-			boost::mutex::scoped_lock lock(buffer_signal_mtu);
-			buffer_signal.disconnect(func);
 		}
 	});
 }
