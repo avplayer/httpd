@@ -19,6 +19,7 @@
 #include <boost/bind.hpp>
 #include <boost/smart_ptr.hpp>
 #include <boost/asio.hpp>
+#include <boost/thread/condition.hpp>
 #include <boost/asio/spawn.hpp>
 #include <boost/thread/thread.hpp>
 #include <boost/thread/future.hpp>
@@ -73,23 +74,20 @@ void read_file(std::string filename, Func& func)
 			auto buf = boost::make_shared<buffer>();
 			is.read(buf->buf.data(), max_length);
 			buf->size = is.gcount();
-			buffer_signal_mtu.lock();
+			boost::mutex::scoped_lock lock(buffer_signal_mtu);
 			buffer_signal(buf);
-			buffer_signal_mtu.unlock();
 		}
 
 		if (filename.empty())
 		{
 			abort_read_pipe = true;
-			buffer_signal_mtu.lock();
+			boost::mutex::scoped_lock lock(buffer_signal_mtu);
 			buffer_signal.disconnect_all_slots();
-			buffer_signal_mtu.unlock();
 		}
 		else
 		{
-			buffer_signal_mtu.lock();
+			boost::mutex::scoped_lock lock(buffer_signal_mtu);
 			buffer_signal.disconnect(func);
-			buffer_signal_mtu.unlock();
 		}
 	});
 }
@@ -174,9 +172,8 @@ protected:
 			auto read_file_func = read_file<decltype(write_func)>;
 
 			{
-				buffer_signal_mtu.lock();
+				boost::mutex::scoped_lock lock(buffer_signal_mtu);
 				buffer_signal.connect(write_func);
-				buffer_signal_mtu.unlock();
 			}
 			if (filename.empty())
 			{
@@ -210,9 +207,10 @@ protected:
 				if (ec)
 				{
 					std::cout << "http " << this << " error: " << ec.message() << std::endl;
-					buffer_signal_mtu.lock();
-					buffer_signal.disconnect(write_func);
-					buffer_signal_mtu.unlock();
+					{
+						boost::mutex::scoped_lock lock(buffer_signal_mtu);
+						buffer_signal.disconnect(write_func);
+					}
 					std::cout << "http " << this << " disconnect, num of slots "
 						<< buffer_signal.num_slots() << std::endl;
 					socket_.close(ec);
@@ -245,6 +243,9 @@ protected:
 						self, q, _1));
 			});
 		}
+
+		boost::mutex::scoped_lock lock(mutex_);
+		condition_.wait(lock, queue.empty());
 	}
 
 	void do_write(boost::shared_ptr<buffer_queue> q, boost::asio::yield_context yield)
@@ -266,6 +267,7 @@ protected:
 			}
 			bq.pop_front();
 		}
+		condition_.notify_one();
 	}
 
 private:
@@ -273,6 +275,8 @@ private:
 	tcp::socket socket_;
 	boost::asio::steady_timer timer_;
 	std::size_t file_size_;
+	boost::mutex mutex_;
+	boost::condition condition_;
 };
 
 void do_accept(boost::asio::io_service& io_service,
