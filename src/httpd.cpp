@@ -33,6 +33,7 @@ std::atomic_int once;
 using namespace boost::filesystem;
 using boost::asio::ip::tcp;
 
+const int max_timeout = 60;
 const int max_length = 1024 * 1024 * 2;
 std::string filename;
 
@@ -104,7 +105,7 @@ protected:
 
 	void wait_for_close()
 	{
-		timer_.expires_from_now(std::chrono::seconds(5));
+		timer_.expires_from_now(std::chrono::seconds(max_timeout));
 		auto self = shared_from_this();
 		boost::asio::spawn(strand_, [this, self](boost::asio::yield_context yield)
 		{
@@ -251,7 +252,7 @@ protected:
 		bool write_in_progress = !queue.empty();
 		queue.push_back(buf);
 
-		timer_.expires_from_now(std::chrono::seconds(5));
+		timer_.expires_from_now(std::chrono::seconds(max_timeout));
 
 		if (!write_in_progress)
 		{
@@ -271,7 +272,7 @@ protected:
 		auto& bq = *q;
 		while (!bq.empty())
 		{
-			timer_.expires_from_now(std::chrono::seconds(5));
+			timer_.expires_from_now(std::chrono::seconds(max_timeout));
 			auto& buf = *bq.front();
 			boost::system::error_code ec;
 			auto n = boost::asio::async_write(socket_,
