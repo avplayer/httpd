@@ -31,17 +31,17 @@ public:
 	~publish_subscribe() = default;
 
 public:
-	boost::signals2::connection sub(subscribe_func_type f) noexcept
+	boost::signals2::connection subscribe(subscribe_func_type f) noexcept
 	{
 		return subscribes_.connect(f);
 	}
 
-	void unsub(const boost::signals2::connection& slot) noexcept
+	void unsubscribe(const boost::signals2::connection& slot) noexcept
 	{
 		slot.disconnect();
 	}
 
-	void perform(data_type data) noexcept
+	void publish(data_type data) noexcept
 	{
 		subscribes_(data);
 	}

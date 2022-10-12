@@ -37,6 +37,7 @@ namespace po = boost::program_options;
 #include <deque>
 #include <string>
 #include <string_view>
+#include <chrono>
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -153,7 +154,7 @@ net::awaitable<void> readfile(std::string filename)
 				break;
 
 			data->resize(gcount);
-			global_publish_subscribe.perform(data);
+			global_publish_subscribe.publish(data);
 
 			if (global_publish_subscribe.size() == 0)
 			{
@@ -208,10 +209,10 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 			timer.cancel_one();
 		};
 
-	auto subscribe_handle = global_publish_subscribe.sub(fetch_data);
+	auto subscribe_handle = global_publish_subscribe.subscribe(fetch_data);
 	scoped_exit se_unsub([&subscribe_handle]() mutable
 		{
-			global_publish_subscribe.unsub(subscribe_handle);
+			global_publish_subscribe.unsubscribe(subscribe_handle);
 		});
 
 	scoped_exit se_quit([&remote_host]()
