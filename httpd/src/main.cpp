@@ -304,7 +304,7 @@ private:
 std::string global_filename;
 publish_subscribe global_publish_subscribe;
 
-net::awaitable<void> readfile()
+net::awaitable<void> readfile(std::string filename)
 {
 	auto ex = co_await net::this_coro::executor;
 
@@ -323,7 +323,7 @@ net::awaitable<void> readfile()
 	boost::system::error_code ec;
 	bool pipe = false;
 
-	if (global_filename.empty() || global_filename == "-")
+	if (filename.empty() || filename == "-")
 	{
 #ifdef _WIN32
 		auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
@@ -337,29 +337,29 @@ net::awaitable<void> readfile()
 	{
 #ifdef __linux__
 #ifdef BOOST_ASIO_HAS_IO_URING
-		is.open(global_filename, net::stream_file::read_only, ec);
+		is.open(filename, net::stream_file::read_only, ec);
 #else
-		auto fd = ::open(global_filename.c_str(), O_RDONLY | O_DIRECT);
+		auto fd = ::open(filename.c_str(), O_RDONLY | O_DIRECT);
 		is.assign(fd, ec);
 #endif
 #elif defined(_WIN32)
-		is.open(global_filename, net::stream_file::read_only, ec);
+		is.open(filename, net::stream_file::read_only, ec);
 #endif
 	}
 
 	if (ec)
 	{
 		LOG_ERR << "readfile: "
-			<< global_filename
+			<< filename
 			<< " error: "
 			<< ec.message();
 		co_return;
 	}
 
-	LOG_DBG << "Open readfile: " << global_filename;
-	scoped_exit se([]()
+	LOG_DBG << "Open readfile: " << filename;
+	scoped_exit se([&filename]()
 		{
-			LOG_DBG << "Quit readfile: " << global_filename;
+			LOG_DBG << "Quit readfile: " << filename;
 		});
 
 restart:
@@ -426,17 +426,6 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 	LOG_DBG << "Client: " << remote_host << " is coming...";
 
 	auto ex = co_await net::this_coro::executor;
-	bool pipe = true;
-
-	// 如果是pipe, 则直接启动文件读.
-	if (!global_filename.empty() && global_filename != "-")
-	{
-		pipe = false;
-
-		net::co_spawn(ex,
-			readfile(),
-			net::detached);
-	}
 
 	using buffer_queue_type = std::deque<publish_subscribe::data_type>;
 	buffer_queue_type buffer_queue;
@@ -478,7 +467,9 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 			asio_util::use_awaitable[ec]);
 		if (ec)
 		{
-			LOG_ERR << remote_host << ", async_read_header: " << ec.message();
+			LOG_ERR << remote_host
+				<< ", async_read_header: "
+				<< ec.message();
 			co_return;
 		}
 
@@ -493,7 +484,9 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 				asio_util::use_awaitable[ec]);
 			if (ec)
 			{
-				LOG_ERR << remote_host << ", expect async_write: " << ec.message();
+				LOG_ERR << remote_host
+					<< ", expect async_write: "
+					<< ec.message();
 				co_return;
 			}
 		}
@@ -502,6 +495,62 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 		std::string target = req.target().to_string();
 		if (!boost::beast::websocket::is_upgrade(req))
 		{
+			bool pipe = true;
+			bool is_dir = std::filesystem::is_directory(global_filename);
+			std::string target_filename = global_filename;
+
+			if (is_dir)
+			{
+				target_filename = global_filename + target;
+				if (!std::filesystem::exists(target_filename) ||
+					std::filesystem::is_directory(target_filename))
+				{
+					boost::system::error_code ec;
+					string_response res {
+						http::status::bad_request,
+						req.version()
+					};
+					res.set(http::field::server, "httpd/1.0");
+					res.set(http::field::content_type, "text/html");
+					res.keep_alive(req.keep_alive());
+					res.body() = "file not exists";
+					res.prepare_payload();
+
+					boost::beast::http::serializer<false,
+						string_body,
+						http::fields> sr{ res };
+					co_await http::async_write(stream,
+						sr,
+						asio_util::use_awaitable[ec]);
+					if (ec)
+					{
+						LOG_ERR << remote_host
+							<< ", async_write: "
+							<< ec.message();
+					}
+
+					co_return;
+				}
+
+				pipe = false;
+
+				net::co_spawn(ex,
+					readfile(target_filename),
+					net::detached);
+			}
+			else
+			{
+				// 如果是pipe, 则直接启动文件读.
+				if (!target_filename.empty() && target_filename != "-")
+				{
+					pipe = false;
+
+					net::co_spawn(ex,
+						readfile(target_filename),
+						net::detached);
+				}
+			}
+
 			auto& lowest_layer = boost::beast::get_lowest_layer(stream);
 			lowest_layer.expires_after(std::chrono::seconds(60));
 
@@ -515,7 +564,7 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 			int64_t file_size = -1;
 			if (!pipe)
 			{
-				file_size = std::filesystem::file_size(global_filename);
+				file_size = std::filesystem::file_size(target_filename);
 				res.content_length(file_size);
 			}
 
@@ -687,7 +736,7 @@ int main(int argc, char** argv)
 	if (global_filename.empty() || global_filename == "-")
 	{
 		net::co_spawn(ctx,
-			readfile(),
+			readfile(global_filename),
 			net::detached);
 	}
 
