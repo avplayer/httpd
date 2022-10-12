@@ -36,11 +36,13 @@ make
 httpd主要用于类似以下几种场景:
 
 ```
-$ tail -f x.log | httpd -l 0.0.0.0:8080
+$ tail -f x.log | httpd -l 0.0.0.0:8080   # 命令输出内容通过管道输出为httpd访问.
 
-$ find | httpd -l 0.0.0.0:8080
+$ find | httpd -l 0.0.0.0:8080   # 命令执行输出到管道通过httpd访问.
 
-$ httpd -l 0.0.0.0:8080 -f test.mp4
+$ httpd -l 0.0.0.0:8080 -f test.mp4   # 指定单个文件用于http访问.
+
+$ httpd -l 0.0.0.0:8080 -f .   # 指定目录.为http doc目录, 可使用http访问目录下指定的文件.
 ```
 
 比如复杂的场景，如使用 RTL-SDR 将 FM广播 转为 http + ts 流（需要RTL2832U设备）
