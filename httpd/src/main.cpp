@@ -362,8 +362,6 @@ net::awaitable<void> readfile(std::string filename)
 			LOG_DBG << "Quit readfile: " << filename;
 		});
 
-restart:
-
 	while (true)
 	{
 		auto size = global_publish_subscribe.size();
@@ -391,7 +389,10 @@ restart:
 			global_publish_subscribe.perform(data);
 
 			if (global_publish_subscribe.size() == 0)
-				goto restart;
+			{
+				LOG_DBG << "No client connection with: " << filename;
+				break;
+			}
 			if (ec)
 				break;
 		}
