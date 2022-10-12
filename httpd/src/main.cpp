@@ -258,7 +258,7 @@ inline int platform_init()
 // 	{ ".mp4", "video/mp4" }
 // };
 
-const inline int data_length = 2048;
+const inline int data_length = 2 * 1024 * 1024;
 
 class publish_subscribe
 {
