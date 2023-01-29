@@ -261,7 +261,7 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 		}
 
 		auto req = parser.release();
-		std::string target = req.target().to_string();
+		std::string target = std::string(req.target());
 		if (!boost::beast::websocket::is_upgrade(req))
 		{
 			bool pipe = true;
