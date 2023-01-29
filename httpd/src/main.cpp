@@ -53,8 +53,23 @@ using dynamic_body = http::dynamic_body;
 using dynamic_request = http::request<dynamic_body>;
 using request_parser = http::request_parser<dynamic_request::body_type>;
 
-using tcp_stream = boost::beast::tcp_stream;
+// All io objects use net::io_context::executor_type instead
+// any_io_executor for better performance
 
+using executor_type = net::io_context::executor_type;
+
+using tcp_stream = boost::beast::basic_stream<
+	tcp, executor_type, boost::beast::unlimited_rate_policy>;
+
+using tcp_resolver = net::ip::basic_resolver<tcp, executor_type>;
+using tcp_acceptor = net::basic_socket_acceptor<tcp, executor_type>;
+using tcp_socket = net::basic_stream_socket<tcp, executor_type>;
+
+using steady_timer = net::basic_waitable_timer<
+	std::chrono::steady_clock,
+	net::wait_traits<std::chrono::steady_clock>, executor_type>;
+
+using awaitable_void = net::awaitable<void, executor_type>;
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -74,20 +89,20 @@ using tcp_stream = boost::beast::tcp_stream;
 std::string global_filename;
 publish_subscribe global_publish_subscribe;
 
-net::awaitable<void> readfile(std::string filename)
+
+
+awaitable_void readfile(std::string filename)
 {
 	auto ex = co_await net::this_coro::executor;
 
-	net::steady_timer timer(ex);
-
 #ifdef __linux__
 #ifdef BOOST_ASIO_HAS_IO_URING
-	net::stream_file is(ex);
+	net::basic_stream_file<executor_type> is(ex);
 #else
-	net::posix::stream_descriptor is(ex);
+	net::posix::basic_stream_descriptor<executor_type> is(ex);
 #endif
 #elif defined(_WIN32)
-	net::stream_file is(ex);
+	net::basic_stream_file<executor_type> is(ex);
 #endif
 
 	boost::system::error_code ec;
@@ -132,13 +147,15 @@ net::awaitable<void> readfile(std::string filename)
 			LOG_DBG << "Quit readfile: " << filename;
 		});
 
+	steady_timer timer(ex);
+
 	while (true)
 	{
 		auto size = global_publish_subscribe.size();
 		if (size == 0)
 		{
 			timer.expires_from_now(std::chrono::milliseconds(100));
-			co_await timer.async_wait(net_awaitable[ec]);
+			co_await timer.async_wait(use_awaitable[ec]);
 			continue;
 		}
 
@@ -151,7 +168,7 @@ net::awaitable<void> readfile(std::string filename)
 			auto gcount = co_await is.async_read_some(
 				net::buffer(data->data(),
 					data_length),
-				net_awaitable[ec]);
+				use_awaitable[ec]);
 			if (gcount <= 0)
 				break;
 
@@ -174,7 +191,7 @@ net::awaitable<void> readfile(std::string filename)
 	co_return;
 }
 
-net::awaitable<void> session(tcp_stream stream)
+awaitable_void session(tcp_stream stream)
 {
 	boost::system::error_code ec;
 
@@ -201,7 +218,7 @@ net::awaitable<void> session(tcp_stream stream)
 	using buffer_queue_type = std::deque<publish_subscribe::data_type>;
 	buffer_queue_type buffer_queue;
 
-	net::steady_timer timer(ex);
+	steady_timer timer(ex);
 
 	auto fetch_data =
 		[&buffer_queue, &timer]
@@ -235,7 +252,7 @@ net::awaitable<void> session(tcp_stream stream)
 		co_await http::async_read_header(stream,
 			buffer,
 			parser,
-			net_awaitable[ec]);
+			use_awaitable[ec]);
 		if (ec)
 		{
 			LOG_ERR << remote_host
@@ -252,7 +269,7 @@ net::awaitable<void> session(tcp_stream stream)
 
 			co_await http::async_write(stream,
 				res,
-				net_awaitable[ec]);
+				use_awaitable[ec]);
 			if (ec)
 			{
 				LOG_ERR << remote_host
@@ -292,7 +309,7 @@ net::awaitable<void> session(tcp_stream stream)
 						http::fields> sr{ res };
 					co_await http::async_write(stream,
 						sr,
-						net_awaitable[ec]);
+						use_awaitable[ec]);
 					if (ec)
 					{
 						LOG_ERR << remote_host
@@ -347,7 +364,7 @@ net::awaitable<void> session(tcp_stream stream)
 			co_await http::async_write_header(
 				stream,
 				sr,
-				net_awaitable[ec]);
+				use_awaitable[ec]);
 			if (ec)
 			{
 				LOG_ERR << remote_host
@@ -364,7 +381,7 @@ net::awaitable<void> session(tcp_stream stream)
 						break;
 
 					timer.expires_from_now(std::chrono::seconds(60));
-					co_await timer.async_wait(net_awaitable[ec]);
+					co_await timer.async_wait(use_awaitable[ec]);
 					continue;
 				}
 
@@ -385,7 +402,7 @@ net::awaitable<void> session(tcp_stream stream)
 				co_await http::async_write(
 					stream,
 					sr,
-					net_awaitable[ec]);
+					use_awaitable[ec]);
 				if (ec == http::error::need_buffer)
 				{
 					file_size -= p->size();
@@ -412,14 +429,14 @@ net::awaitable<void> session(tcp_stream stream)
 	co_return;
 }
 
-net::awaitable<void> listen(tcp::acceptor& acceptor)
+awaitable_void listen(tcp_acceptor& acceptor)
 {
 	for (;;)
 	{
 		boost::system::error_code ec;
 
 		auto client = co_await acceptor.async_accept(
-			net_awaitable[ec]);
+			use_awaitable[ec]);
 		if (ec)
 			break;
 
@@ -474,7 +491,6 @@ int main(int argc, char** argv)
 		return EXIT_SUCCESS;
 	}
 
-	net::io_context ctx;
 	std::string host;
 	std::string port;
 	bool v6only;
@@ -486,19 +502,21 @@ int main(int argc, char** argv)
 		return EXIT_FAILURE;
 	}
 
+	net::io_context ctx;
+
 	auto listen_endpoint =
-		*tcp::resolver(ctx).resolve(
+		*tcp_resolver(ctx).resolve(
 			host,
 			port,
-			tcp::resolver::passive
+			tcp_resolver::passive
 		);
 
-	tcp::acceptor acceptor(ctx, listen_endpoint);
+	tcp_acceptor acceptor(ctx, listen_endpoint);
 
 	// 启动tcp侦听.
 	for (int i = 0; i < 16; i++)
 	{
-		net::co_spawn(ctx,
+		net::co_spawn(ctx.get_executor(),
 			listen(acceptor),
 			net::detached);
 	}
@@ -506,7 +524,7 @@ int main(int argc, char** argv)
 	// 如果是pipe, 则直接启动文件读.
 	if (global_filename.empty() || global_filename == "-")
 	{
-		net::co_spawn(ctx,
+		net::co_spawn(ctx.get_executor(),
 			readfile(global_filename),
 			net::detached);
 	}
