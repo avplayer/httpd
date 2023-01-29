@@ -136,7 +136,7 @@ net::awaitable<void> readfile(std::string filename)
 		if (size == 0)
 		{
 			timer.expires_from_now(std::chrono::milliseconds(100));
-			co_await timer.async_wait(asio_util::use_awaitable[ec]);
+			co_await timer.async_wait(net_awaitable[ec]);
 			continue;
 		}
 
@@ -149,7 +149,7 @@ net::awaitable<void> readfile(std::string filename)
 			auto gcount = co_await is.async_read_some(
 				net::buffer(data->data(),
 					data_length),
-				asio_util::use_awaitable[ec]);
+				net_awaitable[ec]);
 			if (gcount <= 0)
 				break;
 
@@ -233,7 +233,7 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 		co_await http::async_read_header(stream,
 			buffer,
 			parser,
-			asio_util::use_awaitable[ec]);
+			net_awaitable[ec]);
 		if (ec)
 		{
 			LOG_ERR << remote_host
@@ -250,7 +250,7 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 
 			co_await http::async_write(stream,
 				res,
-				asio_util::use_awaitable[ec]);
+				net_awaitable[ec]);
 			if (ec)
 			{
 				LOG_ERR << remote_host
@@ -290,7 +290,7 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 						http::fields> sr{ res };
 					co_await http::async_write(stream,
 						sr,
-						asio_util::use_awaitable[ec]);
+						net_awaitable[ec]);
 					if (ec)
 					{
 						LOG_ERR << remote_host
@@ -345,7 +345,7 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 			co_await http::async_write_header(
 				stream,
 				sr,
-				asio_util::use_awaitable[ec]);
+				net_awaitable[ec]);
 			if (ec)
 			{
 				LOG_ERR << remote_host
@@ -362,7 +362,7 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 						break;
 
 					timer.expires_from_now(std::chrono::seconds(60));
-					co_await timer.async_wait(asio_util::use_awaitable[ec]);
+					co_await timer.async_wait(net_awaitable[ec]);
 					continue;
 				}
 
@@ -383,7 +383,7 @@ net::awaitable<void> session(boost::beast::tcp_stream stream)
 				co_await http::async_write(
 					stream,
 					sr,
-					asio_util::use_awaitable[ec]);
+					net_awaitable[ec]);
 				if (ec == http::error::need_buffer)
 				{
 					file_size -= p->size();
@@ -417,7 +417,7 @@ net::awaitable<void> listen(tcp::acceptor& acceptor)
 		boost::system::error_code ec;
 
 		auto client = co_await acceptor.async_accept(
-			asio_util::use_awaitable[ec]);
+			net_awaitable[ec]);
 		if (ec)
 			break;
 
