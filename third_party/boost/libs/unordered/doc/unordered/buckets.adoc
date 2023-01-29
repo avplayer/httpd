@@ -5,7 +5,7 @@
 = The Data Structure
 
 The containers are made up of a number of 'buckets', each of which can contain
-any number of elements. For example, the following diagram shows an <<unordered_set,unordered_set>> with 7 buckets containing 5 elements, `A`,
+any number of elements. For example, the following diagram shows a <<unordered_set,`boost::unordered_set`>> with 7 buckets containing 5 elements, `A`,
 `B`, `C`, `D` and `E` (this is just for illustration, containers will typically
 have more buckets).
 
@@ -31,20 +31,34 @@ equality predicates in the next section>>.
 
 You can see in the diagram that `A` & `D` have been placed in the same bucket.
 When looking for elements in this bucket up to 2 comparisons are made, making
-the search slower. This is known as a collision. To keep things fast we try to
+the search slower. This is known as a *collision*. To keep things fast we try to
 keep collisions to a minimum.
+
+If instead of `boost::unordered_set` we had used <<unordered_flat_set,`boost::unordered_flat_set`>>, the
+diagram would look as follows:
+
+image::buckets-oa.png[]
+
+In open-addressing containers, buckets can hold at most one element; if a collision happens
+(like is the case of `D` in the example), the element uses some other available bucket in
+the vicinity of the original position. Given this simpler scenario, Boost.Unordered
+open-addressing containers offer a very limited API for accessing buckets.
 
 [caption=, title='Table {counter:table-counter}. Methods for Accessing Buckets']
 [cols="1,.^1", frame=all, grid=rows]
 |===
-|Method |Description
+2+^h| *All containers*
+h|*Method* h|*Description*
 
 |`size_type bucket_count() const` 
 |The number of buckets.
 
+2+^h| *Closed-addressing containers only* +
+`boost::unordered_[multi]set`, `boost::unordered_[multi]map` 
+h|*Method* h|*Description*
+
 |`size_type max_bucket_count() const` 
 |An upper bound on the number of buckets.
-
 |`size_type bucket_size(size_type n) const` 
 |The number of elements in bucket `n`.
 
@@ -69,14 +83,14 @@ keep collisions to a minimum.
 == Controlling the number of buckets
 
 As more elements are added to an unordered associative container, the number
-of elements in the buckets will increase causing performance to degrade.
+of collisions will increase causing performance to degrade.
 To combat this the containers increase the bucket count as elements are inserted.
 You can also tell the container to change the bucket count (if required) by
 calling `rehash`.
 
 The standard leaves a lot of freedom to the implementer to decide how the
 number of buckets is chosen, but it does make some requirements based on the
-container's 'load factor', the average number of elements per bucket.
+container's 'load factor', the number of elements divided by the number of buckets.
 Containers also have a 'maximum load factor' which they should try to keep the
 load factor below.
 
@@ -97,7 +111,8 @@ or close to the hint - unless your hint is unreasonably small or large.
 [caption=, title='Table {counter:table-counter}. Methods for Controlling Bucket Size']
 [cols="1,.^1", frame=all, grid=rows]
 |===
-|Method |Description
+2+^h| *All containers*
+h|*Method* h|*Description*
 
 |`X(size_type n)` 
 |Construct an empty container with at least `n` buckets (`X` is the container type).
@@ -112,22 +127,44 @@ or close to the hint - unless your hint is unreasonably small or large.
 |Returns the current maximum load factor.
 
 |`float max_load_factor(float z)`
-|Changes the container's maximum load factor, using `z` as a hint.
+|Changes the container's maximum load factor, using `z` as a hint. +
+**Open-addressing containers:** this function does nothing: users are not allowed to change the maximum load factor.
 
 |`void rehash(size_type n)`
 |Changes the number of buckets so that there at least `n` buckets, and so that the load factor is less than the maximum load factor.
 
+2+^h| *Open-addressing containers only* +
+`boost::unordered_flat_set`, `boost::unordered_flat_map` 
+h|*Method* h|*Description*
+
+|`size_type max_load() const`
+|Returns the maximum number of allowed elements in the container before rehash.
+
 |===
+
+A note on `max_load` for open-addressing containers: the maximum load will be 
+(`max_load_factor() * bucket_count()`) right after `rehash` or on container creation, but may
+slightly decrease when erasing elements in high-load situations. For instance, if we
+have a <<unordered_flat_map,`boost::unordered_flat_map`>> with `size()` almost
+at `max_load()` level and then erase 1,000 elements, `max_load()` may decrease by around a
+few dozen elements. This is done internally by Boost.Unordered in order
+to keep its performance stable, and must be taken into account when planning for rehash-free insertions.
 
 == Iterator Invalidation
 
 It is not specified how member functions other than `rehash` and `reserve` affect
-the bucket count, although `insert` is only allowed to invalidate iterators
-when the insertion causes the load factor to be greater than or equal to the
-maximum load factor. For most implementations this means that `insert` will only
-change the number of buckets when this happens. While iterators can be
-invalidated by calls to `insert`, `rehash` and `reserve`, pointers and references to the
-container's elements are never invalidated.
+the bucket count, although `insert` can only invalidate iterators
+when the insertion causes the container's load to be greater than the maximum allowed.
+For most implementations this means that `insert` will only
+change the number of buckets when this happens. Iterators can be
+invalidated by calls to `insert`, `rehash` and `reserve`.
+
+As for pointers and references,
+they are never invalidated for closed-addressing containers (`boost::unordered_[multi]set`, `boost::unordered_[multi]map`),
+but they will when rehashing occurs for open-addressing
+`boost::unordered_flat_set` and `boost::unordered_flat_map`: this is because
+these containers store elements directly into their holding buckets, so
+when allocating a new bucket array the elements must be transferred by means of move construction.
 
 In a similar manner to using `reserve` for ``vector``s, it can be a good idea
 to call `reserve` before inserting a large number of elements. This will get
@@ -207,4 +244,69 @@ image::fca.png[align=center]
 
 Thus container-wide iteration is turned into traversing the non-empty bucket groups (an operation with constant time complexity) which reduces the time complexity back to `O(size())`. In total, a bucket group is only 4 words in size and it views `sizeof(std::size_t) * CHAR_BIT` buckets meaning that for all common implementations, there's only 4 bits of space overhead per bucket introduced by the bucket groups.
 
-For more information on implementation rationale, read the <<Implementation Rationale, corresponding section>>.
+A more detailed description of Boost.Unordered's closed-addressing implementation is
+given in an
+https://bannalia.blogspot.com/2022/06/advancing-state-of-art-for.html[external article].
+For more information on implementation rationale, read the
+xref:#rationale_boostunordered_multiset_and_boostunordered_multimap[corresponding section].
+
+== Open Addressing Implementation
+
+The diagram shows the basic internal layout of `boost::unordered_flat_map` and
+`boost:unordered_flat_set`.
+
+
+[#img-foa-layout]
+.Open-addressing layout used by Boost.Unordered.
+image::foa.png[align=center]
+
+As with all open-addressing containers, elements are stored directly in the bucket array.
+This array is logically divided into 2^_n_^ _groups_ of 15 elements each.
+In addition to the bucket array, there is an associated _metadata array_ with 2^_n_^
+16-byte words.
+
+[#img-foa-metadata]
+.Breakdown of a metadata word.
+image::foa-metadata.png[align=center]
+
+A metadata word is divided into 15 _h_~_i_~ bytes (one for each associated
+bucket), and an _overflow byte_ (_ofw_ in the diagram). The value of _h_~_i_~ is:
+
+  - 0 if the corresponding bucket is empty.
+  - 1 to encode a special empty bucket called a _sentinel_, which is used internally to
+  stop iteration when the container has been fully traversed.
+  - If the bucket is occupied, a _reduced hash value_ obtained from the hash value of
+  the element.
+
+When looking for an element with hash value _h_, SIMD technologies such as
+https://en.wikipedia.org/wiki/SSE2[SSE2] and
+https://en.wikipedia.org/wiki/ARM_architecture_family#Advanced_SIMD_(Neon)[Neon] allow us
+to very quickly inspect the full metadata word and look for the reduced value of _h_ among all the
+15 buckets with just a handful of CPU instructions: non-matching buckets can be
+readily discarded, and those whose reduced hash value matches need be inspected via full
+comparison with the corresponding element. If the looked-for element is not present,
+the overflow byte is inspected:
+
+- If the bit in the position _h_ mod 8 is zero, lookup terminates (and the
+element is not present).
+- If the bit is set to 1 (the group has been _overflowed_), further groups are
+checked using https://en.wikipedia.org/wiki/Quadratic_probing[_quadratic probing_], and
+the process is repeated.
+
+Insertion is algorithmically similar: empty buckets are located using SIMD,
+and when going past a full group its corresponding overflow bit is set to 1.
+
+In architectures without SIMD support, the logical layout stays the same, but the metadata
+word is codified using a technique we call _bit interleaving_: this layout allows us
+to emulate SIMD with reasonably good performance using only standard arithmetic and
+logical operations.
+
+[#img-foa-metadata-interleaving]
+.Bit-interleaved metadata word.
+image::foa-metadata-interleaving.png[align=center]
+
+A more detailed description of Boost.Unordered's open-addressing implementation is
+given in an
+https://bannalia.blogspot.com/2022/11/inside-boostunorderedflatmap.html[external article].
+For more information on implementation rationale, read the
+xref:#rationale_boostunordered_flat_set_and_boostunordered_flat_map[corresponding section].

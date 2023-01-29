@@ -9,7 +9,7 @@
 
 [listing,subs="+macros,+quotes"]
 -----
-// #include <boost/unordered_set.hpp>
+// #include <boost/unordered/unordered_set.hpp>
 
 namespace boost {
   template<class Key,
@@ -51,6 +51,8 @@ namespace boost {
                          const allocator_type& a = allocator_type());
     xref:#unordered_multiset_copy_constructor[unordered_multiset](const unordered_multiset& other);
     xref:#unordered_multiset_move_constructor[unordered_multiset](unordered_multiset&& other);
+    template<class InputIterator>
+      xref:#unordered_multiset_iterator_range_constructor_with_allocator[unordered_multiset](InputIterator f, InputIterator l, const allocator_type& a);
     explicit xref:#unordered_multiset_allocator_constructor[unordered_multiset](const Allocator& a);
     xref:#unordered_multiset_copy_constructor_with_allocator[unordered_multiset](const unordered_multiset& other, const Allocator& a);
     xref:#unordered_multiset_move_constructor_with_allocator[unordered_multiset](unordered_multiset&& other, const Allocator& a);
@@ -66,7 +68,9 @@ namespace boost {
     template<class InputIterator>
       xref:#unordered_multiset_iterator_range_constructor_with_bucket_count_and_hasher[unordered_multiset](InputIterator f, InputIterator l, size_type n, const hasher& hf,
                          const allocator_type& a);
-    xref:#unordered_multiset_initializer_list_constructor_with_bucket_count_and_allocator[unordered_multiset](std::initializer_list<value_type> il, size_type n, const allocator_type& a)
+    xref:#unordered_multiset_initializer_list_constructor_with_allocator[unordered_multiset](std::initializer_list<value_type> il, const allocator_type& a);
+    xref:#unordered_multiset_initializer_list_constructor_with_bucket_count_and_allocator[unordered_multiset](std::initializer_list<value_type> il, size_type n,
+                       const allocator_type& a)
     xref:#unordered_multiset_initializer_list_constructor_with_bucket_count_and_hasher_and_allocator[unordered_multiset](std::initializer_list<value_type> il, size_type n, const hasher& hf,
                        const allocator_type& a);
     xref:#unordered_multiset_destructor[~unordered_multiset()];
@@ -178,26 +182,71 @@ namespace boost {
     void xref:#unordered_multiset_rehash[rehash](size_type n);
     void xref:#unordered_multiset_reserve[reserve](size_type n);
   };
+
+  // Deduction Guides
+  template<class InputIterator,
+           class Hash = boost::hash<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>>,
+           class Pred = std::equal_to<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>>,
+           class Allocator = std::allocator<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>>>
+    unordered_multiset(InputIterator, InputIterator, typename xref:#unordered_multiset_deduction_guides[__see below__]::size_type = xref:#unordered_multiset_deduction_guides[__see below__],
+                       Hash = Hash(), Pred = Pred(), Allocator = Allocator())
+      -> unordered_multiset<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>, Hash, Pred, Allocator>;
+
+  template<class T, class Hash = boost::hash<T>, class Pred = std::equal_to<T>,
+           class Allocator = std::allocator<T>>
+    unordered_multiset(std::initializer_list<T>, typename xref:#unordered_multiset_deduction_guides[__see below__]::size_type = xref:#unordered_multiset_deduction_guides[__see below__],
+                       Hash = Hash(), Pred = Pred(), Allocator = Allocator())
+      -> unordered_multiset<T, Hash, Pred, Allocator>;
+
+  template<class InputIterator, class Allocator>
+    unordered_multiset(InputIterator, InputIterator, typename xref:#unordered_multiset_deduction_guides[__see below__]::size_type, Allocator)
+      -> unordered_multiset<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>,
+                            boost::hash<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>>,
+                            std::equal_to<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>>, Allocator>;
+
+  template<class InputIterator, class Allocator>
+    unordered_multiset(InputIterator, InputIterator, Allocator)
+      -> unordered_multiset<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>,
+                            boost::hash<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>>,
+                            std::equal_to<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>>, Allocator>;
+
+  template<class InputIterator, class Hash, class Allocator>
+    unordered_multiset(InputIterator, InputIterator, typename xref:#unordered_multiset_deduction_guides[__see below__]::size_type, Hash,
+                       Allocator)
+      -> unordered_multiset<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>, Hash,
+                            std::equal_to<xref:#unordered_multiset_iter_value_type[__iter-value-type__]<InputIterator>>, Allocator>;
+
+  template<class T, class Allocator>
+    unordered_multiset(std::initializer_list<T>, typename xref:#unordered_multiset_deduction_guides[__see below__]::size_type, Allocator)
+      -> unordered_multiset<T, boost::hash<T>, std::equal_to<T>, Allocator>;
+
+  template<class T, class Allocator>
+    unordered_multiset(std::initializer_list<T>, Allocator)
+      -> unordered_multiset<T, boost::hash<T>, std::equal_to<T>, Allocator>;
+
+  template<class T, class Hash, class Allocator>
+    unordered_multiset(std::initializer_list<T>, typename xref:#unordered_multiset_deduction_guides[__see below__]::size_type, Hash, Allocator)
+      -> unordered_multiset<T, Hash, std::equal_to<T>, Allocator>;
+      
+  // Equality Comparisons
+  template<class Key, class Hash, class Pred, class Alloc>
+    bool xref:#unordered_multiset_operator[operator++==++](const unordered_multiset<Key, Hash, Pred, Alloc>& x,
+                    const unordered_multiset<Key, Hash, Pred, Alloc>& y);
+
+  template<class Key, class Hash, class Pred, class Alloc>
+    bool xref:#unordered_multiset_operator_2[operator!=](const unordered_multiset<Key, Hash, Pred, Alloc>& x,
+                    const unordered_multiset<Key, Hash, Pred, Alloc>& y);
+
+  // swap
+  template<class Key, class Hash, class Pred, class Alloc>
+    void xref:#unordered_multiset_swap_2[swap](unordered_multiset<Key, Hash, Pred, Alloc>& x,
+              unordered_multiset<Key, Hash, Pred, Alloc>& y)
+      noexcept(noexcept(x.swap(y)));
+
+  template<class K, class H, class P, class A, class Predicate>
+    typename unordered_multiset<K, H, P, A>::size_type
+      xref:#unordered_multiset_erase_if[erase_if](unordered_multiset<K, H, P, A>& c, Predicate pred);
 }
-
-// Equality Comparisons
-template<class Key, class Hash, class Pred, class Alloc>
-  bool xref:#unordered_multiset_operator[operator++==++](const unordered_multiset<Key, Hash, Pred, Alloc>& x,
-                  const unordered_multiset<Key, Hash, Pred, Alloc>& y);
-
-template<class Key, class Hash, class Pred, class Alloc>
-  bool xref:#unordered_multiset_operator_2[operator!=](const unordered_multiset<Key, Hash, Pred, Alloc>& x,
-                  const unordered_multiset<Key, Hash, Pred, Alloc>& y);
-
-// swap
-template<class Key, class Hash, class Pred, class Alloc>
-  void xref:#unordered_multiset_swap_2[swap](unordered_multiset<Key, Hash, Pred, Alloc>& x,
-            unordered_multiset<Key, Hash, Pred, Alloc>& y)
-    noexcept(noexcept(x.swap(y)));
-
-template<class K, class H, class P, class A, class Predicate>
-  typename unordered_multiset<K, H, P, A>::size_type
-    xref:#unordered_multiset_erase_if[erase_if](unordered_multiset<K, H, P, A>& c, Predicate pred);
 -----
 
 ---
@@ -276,7 +325,7 @@ Is identical to the difference type of `iterator` and `const_iterator`.
 typedef _implementation-defined_ iterator;
 ----
 
-An iterator whose value type is `value_type`.
+A constant iterator whose value type is `value_type`.
 
 The iterator category is at least a forward iterator.
 
@@ -409,6 +458,19 @@ So, for example, you can't return the container from a function.
 
 ---
 
+==== Iterator Range Constructor with Allocator
+```c++
+template<class InputIterator>
+  unordered_multiset(InputIterator f, InputIterator l, const allocator_type& a);
+```
+
+Constructs an empty container using `a` as the allocator, with the default hash function and key equality predicate and a maximum load factor of `1.0` and inserts the elements from `[f, l)` into it.
+
+[horizontal]
+Requires:;; `hasher`, `key_equal` need to be https://en.cppreference.com/w/cpp/named_req/DefaultConstructible[DefaultConstructible^].
+
+---
+
 ==== Allocator Constructor
 ```c++
 explicit unordered_multiset(const Allocator& a);
@@ -509,6 +571,19 @@ Constructs an empty container with at least `n` buckets, using `hf` as the hash 
 
 [horizontal]
 Requires:;; `key_equal` needs to be https://en.cppreference.com/w/cpp/named_req/DefaultConstructible[DefaultConstructible^].
+
+---
+
+==== initializer_list Constructor with Allocator
+
+```c++
+unordered_multiset(std::initializer_list<value_type> il, const allocator_type& a);
+```
+
+Constructs an empty container using `a` as the allocator and a maximum load factor of 1.0 and inserts the elements from `il` into it.
+
+[horizontal]
+Requires:;; `hasher` and `key_equal` need to be https://en.cppreference.com/w/cpp/named_req/DefaultConstructible[DefaultConstructible^].
 
 ---
 
@@ -1306,7 +1381,9 @@ Effects:;; Changes the container's maximum load factor, using `z` as a hint.
 void rehash(size_type n);
 ```
 
-Changes the number of buckets so that there at least `n` buckets, and so that the load factor is less than the maximum load factor.
+Changes the number of buckets so that there are at least `n` buckets, and so that the load factor is less than or equal to the maximum load factor. When applicable, this will either grow or shrink the `bucket_count()` associated with the container.
+
+When `size() == 0`, `rehash(0)` will deallocate the underlying buckets array.
 
 Invalidates iterators, and changes the order of elements. Pointers and references to elements are not invalidated.
 
@@ -1320,12 +1397,37 @@ Throws:;; The function has no effect if an exception is thrown, unless it is thr
 void reserve(size_type n);
 ```
 
+Equivalent to `a.rehash(ceil(n / a.max_load_factor()))`, or `a.rehash(1)` if `n > 0` and `a.max_load_factor() == std::numeric_limits<float>::infinity()`.
+
+Similar to `rehash`, this function can be used to grow or shrink the number of buckets in the container.
+
 Invalidates iterators, and changes the order of elements. Pointers and references to elements are not invalidated.
 
 [horizontal]
 Throws:;; The function has no effect if an exception is thrown, unless it is thrown by the container's hash function or comparison function.
 
+
 ---
+
+=== Deduction Guides
+A deduction guide will not participate in overload resolution if any of the following are true:
+
+  - It has an `InputIterator` template parameter and a type that does not qualify as an input iterator is deduced for that parameter.
+  - It has an `Allocator` template parameter and a type that does not qualify as an allocator is deduced for that parameter.
+  - It has a `Hash` template parameter and an integral type or a type that qualifies as an allocator is deduced for that parameter.
+  - It has a `Pred` template parameter and a type that qualifies as an allocator is deduced for that parameter.
+
+A `size_­type` parameter type in a deduction guide refers to the `size_­type` member type of the
+container type deduced by the deduction guide. Its default value coincides with the default value
+of the constructor selected.
+
+==== __iter-value-type__
+[listings,subs="+macros,+quotes"]
+-----
+template<class InputIterator>
+  using __iter-value-type__ =
+    typename std::iterator_traits<InputIterator>::value_type; // exposition only
+-----
 
 === Equality Comparisons
 
