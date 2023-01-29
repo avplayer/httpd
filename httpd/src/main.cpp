@@ -53,6 +53,8 @@ using dynamic_body = http::dynamic_body;
 using dynamic_request = http::request<dynamic_body>;
 using request_parser = http::request_parser<dynamic_request::body_type>;
 
+using tcp_stream = boost::beast::tcp_stream;
+
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -172,7 +174,7 @@ net::awaitable<void> readfile(std::string filename)
 	co_return;
 }
 
-net::awaitable<void> session(boost::beast::tcp_stream stream)
+net::awaitable<void> session(tcp_stream stream)
 {
 	boost::system::error_code ec;
 
@@ -433,7 +435,7 @@ net::awaitable<void> listen(tcp::acceptor& acceptor)
 
 		auto ex = client.get_executor();
 		co_spawn(ex,
-			session(boost::beast::tcp_stream(std::move(client))),
+			session(tcp_stream(std::move(client))),
 			net::detached);
 	}
 
@@ -452,7 +454,7 @@ int main(int argc, char** argv)
 	desc.add_options()
 		("help,h", "Help message.")
 		("listen", po::value<std::string>(&httpd_listen)->default_value("[::0]:80")->value_name("ip:port"), "Httpd tcp listen.")
-		("file", po::value<std::string>(&global_filename)->default_value("")->value_name("file/pipe"), "Filename or pipe.")
+		("file", po::value<std::string>(&global_filename)->value_name("file/pipe"), "Filename or pipe.")
 		;
 
 	po::variables_map vm;
