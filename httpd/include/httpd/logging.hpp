@@ -44,9 +44,7 @@
 #	ifndef WIN32_LEAN_AND_MEAN
 #		define WIN32_LEAN_AND_MEAN
 #	endif // !WIN32_LEAN_AND_MEAN
-#	include <mmsystem.h>
 #	include <windows.h>
-#	pragma comment(lib, "Winmm.lib")
 #endif // _WIN32
 
 #ifdef USE_SYSTEMD_LOGGING
@@ -189,15 +187,51 @@ inline bool global_logging___ = true;
 
 namespace logger_aux__ {
 
+	constexpr long long epoch___ = 0x19DB1DED53E8000LL;
+
 	inline int64_t gettime()
 	{
-		using std::chrono::system_clock;
+#ifdef WIN32
+		static std::tuple<LONGLONG, LONGLONG, LONGLONG>
+			static_start = []() ->
+			std::tuple<LONGLONG, LONGLONG, LONGLONG>
+		{
+			LARGE_INTEGER f;
+			QueryPerformanceFrequency(&f);
 
+			FILETIME ft;
+#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8)
+			GetSystemTimePreciseAsFileTime(&ft);
+#else
+			GetSystemTimeAsFileTime(&ft);
+#endif
+			auto now = (((static_cast<long long>(ft.dwHighDateTime)) << 32)
+				+ static_cast<long long>(ft.dwLowDateTime) - epoch___)
+				/ 10000;
+
+			LARGE_INTEGER start;
+			QueryPerformanceCounter(&start);
+
+			return { f.QuadPart / 1000, start.QuadPart, now };
+		}();
+
+		auto [freq, start, now] = static_start;
+
+		LARGE_INTEGER current;
+		QueryPerformanceCounter(&current);
+
+		auto elapsed = current.QuadPart - start;
+		elapsed /= freq;
+
+		return static_cast<int64_t>(now + elapsed);
+#else
+		using std::chrono::system_clock;
 		auto now = system_clock::now() -
 			system_clock::time_point(std::chrono::milliseconds(0));
 
 		return std::chrono::duration_cast<
 			std::chrono::milliseconds>(now).count();
+#endif
 	}
 
 	namespace internal {
@@ -439,9 +473,9 @@ namespace logger_aux__ {
 	}
 
 	template <class Writer>
-	Writer& writer_single()
+	Writer& writer_single(std::string log_path = "")
 	{
-		static Writer writer_instance;
+		static Writer writer_instance(log_path);
 		return writer_instance;
 	}
 
@@ -456,9 +490,11 @@ namespace logger_aux__ {
 		if (!buffer)
 			return &ptm;
 
-		std::sprintf(buffer, "%04d-%02d-%02d %02d:%02d:%02d.%03d",
+		std::format_to(buffer,
+			"{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
 			ptm.tm_year + 1900, ptm.tm_mon + 1, ptm.tm_mday,
-			ptm.tm_hour, ptm.tm_min, ptm.tm_sec, (int)(time % 1000));
+			ptm.tm_hour, ptm.tm_min, ptm.tm_sec, (int)(time % 1000)
+		);
 
 		return &ptm;
 	}
@@ -472,8 +508,11 @@ class auto_logger_file__
 	auto_logger_file__& operator=(const auto_logger_file__&) = delete;
 
 public:
-	auto_logger_file__()
+	auto_logger_file__(std::string log_path = "")
 	{
+		if (!log_path.empty())
+			m_log_path = log_path;
+
 		m_log_path = m_log_path / (LOG_APPNAME + std::string(".log"));
 
 		if (!global_logging___)
@@ -486,6 +525,7 @@ public:
 	}
 	~auto_logger_file__()
 	{
+		m_last_time = 0;
 	}
 
 	typedef std::shared_ptr<std::ofstream> ofstream_ptr;
@@ -760,6 +800,8 @@ inline void logger_writer__(int64_t time, const int& level,
 	[[maybe_unused]] bool disable_cout = false) noexcept
 {
 	LOGGER_LOCKS_();
+	static auto& logger = util::logger_aux__::writer_single<
+		util::auto_logger_file__>();
 	char ts[64] = { 0 };
 	[[maybe_unused]] auto ptm = logger_aux__::time_to_string(ts, time);
 	std::string prefix = ts + std::string(" [") +
@@ -767,8 +809,7 @@ inline void logger_writer__(int64_t time, const int& level,
 	std::string tmp = message + "\n";
 	std::string whole = prefix + tmp;
 #ifndef DISABLE_WRITE_LOGGING
-	util::logger_aux__::writer_single<
-		util::auto_logger_file__>().write(time, whole.c_str(), whole.size());
+	logger.write(time, whole.c_str(), whole.size());
 #endif // !DISABLE_WRITE_LOGGING
 	logger_output_console__(disable_cout, level, prefix, tmp);
 #ifdef USE_SYSTEMD_LOGGING
@@ -813,16 +854,12 @@ namespace logger_aux__ {
 			signal(SIGFPE, signalHandler);
 			signal(SIGSEGV, signalHandler);
 			signal(SIGILL, signalHandler);
-
-			m_bg_thread = std::thread([this]()
-				{
-					internal_work();
-				});
 		}
 		~async_logger___()
 		{
 			m_abort = true;
-			m_bg_thread.join();
+			if (m_bg_thread.joinable())
+				m_bg_thread.join();
 		}
 
 	public:
@@ -863,6 +900,12 @@ namespace logger_aux__ {
 		void post_log(const int& level,
 			std::string&& message, bool disable_cout = false)
 		{
+			[[maybe_unused]] static auto runthread =
+				&(m_bg_thread = std::thread([this]()
+					{
+						internal_work();
+					}));
+
 			auto time = logger_aux__::gettime();
 			std::unique_lock lock(m_bg_mutex);
 
@@ -913,11 +956,7 @@ inline void signalHandler(int)
 
 inline void init_logging(const std::string& path = "")
 {
-	auto_logger_file__& file =
-		logger_aux__::writer_single<util::auto_logger_file__>();
-
-	if (!path.empty())
-		file.open(path.c_str());
+	logger_aux__::writer_single<util::auto_logger_file__>(path);
 }
 
 inline std::string log_path()
