@@ -443,14 +443,6 @@ static inline awaitable_void pipe_session(
 	co_return;
 }
 
-
-static inline std::string dir_content(const std::filesystem::path& dir)
-{
-	std::string result;
-
-	return result;
-}
-
 static inline awaitable_void dir_session(
 	tcp_stream& stream,
 	dynamic_request& req,
@@ -467,14 +459,17 @@ static inline awaitable_void dir_session(
 	std::filesystem::directory_iterator end;
 	std::filesystem::directory_iterator it(dir, ec);
 
-	if (ec)
+	if (ec || dir.string().back() != '/')
 	{
 		string_response res{
 			http::status::found,
 			req.version()
 		};
 
-		res.set(http::field::location, "/");
+		auto dirs = boost::nowide::narrow(dir.u16string());
+		dirs = boost::replace_first_copy(dirs, global_path, "") + "/";
+
+		res.set(http::field::location, dirs);
 		res.keep_alive(req.keep_alive());
 		res.prepare_payload();
 
@@ -873,14 +868,9 @@ static inline awaitable_void session(tcp_stream stream)
 			buffer,
 			parser,
 			use_awaitable[ec]);
+
 		if (ec)
-		{
-			LOG_ERR << "Session: "
-				<< connection_id
-				<< ", async_read_header: "
-				<< ec.message();
 			co_return;
-		}
 
 		if (parser.get()[http::field::expect] == "100-continue")
 		{
