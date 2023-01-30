@@ -84,7 +84,7 @@ using awaitable_void = net::awaitable<void, executor_type>;
 //////////////////////////////////////////////////////////////////////////
 
 
-const auto global_buffer_size = 16;// 5 * 1024 * 1024;
+const auto global_buffer_size = 5 * 1024 * 1024;
 
 constexpr static auto head_fmt =
 LR"(<html><head><meta charset="UTF-8"><title>Index of {}</title></head><body bgcolor="white"><h1>Index of {}</h1><hr><pre>)";
