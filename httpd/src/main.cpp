@@ -527,11 +527,14 @@ static inline awaitable_void dir_session(
 		char tmbuf[64] = { 0 };
 		auto tm = std::localtime(&write_time);
 
-		std::strftime(
-			tmbuf,
-			sizeof(tmbuf),
-			"%m-%d-%Y %H:%M",
-			tm);
+		if (tm)
+		{
+			std::strftime(
+				tmbuf,
+				sizeof(tmbuf),
+				"%m-%d-%Y %H:%M",
+				tm);
+		}
 
 		time_string = boost::nowide::widen(tmbuf);
 		std::wstring wstr;
@@ -822,8 +825,8 @@ static inline awaitable_void file_session(
 
 static inline awaitable_void session(tcp_stream stream)
 {
-	static int64_t connection_id = 0;
-	connection_id++;
+	static int64_t static_connection_id = 0;
+	int64_t connection_id = static_connection_id++;
 
 	boost::system::error_code ec;
 
