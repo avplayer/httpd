@@ -13,12 +13,15 @@
 #include "httpd/scoped_exit.hpp"
 #include "httpd/use_awaitable.hpp"
 #include "httpd/misc.hpp"
+#include "httpd/strutil.hpp"
 #include "httpd/publish_subscribe.hpp"
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/websocket.hpp>
-namespace http = boost::beast::http;           // from <boost/beast/http.hpp>
+
+namespace beast = boost::beast;	// from <boost/beast/http.hpp>
+namespace http = beast::http;
 
 #include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/stream_file.hpp>
@@ -32,6 +35,12 @@ using net::ip::tcp;
 namespace po = boost::program_options;
 
 #include <boost/signals2.hpp>
+#include <boost/nowide/convert.hpp>
+#include <boost/url.hpp>
+#include <boost/regex.hpp>
+
+#include <fmt/xchar.h>
+#include <fmt/format.h>
 
 #include <map>
 #include <deque>
@@ -52,14 +61,15 @@ using response_serializer = http::response_serializer<buffer_body, http::fields>
 using dynamic_body = http::dynamic_body;
 using dynamic_request = http::request<dynamic_body>;
 using request_parser = http::request_parser<dynamic_request::body_type>;
+using flat_buffer = beast::flat_buffer;
 
 // All io objects use net::io_context::executor_type instead
 // any_io_executor for better performance
 
 using executor_type = net::io_context::executor_type;
 
-using tcp_stream = boost::beast::basic_stream<
-	tcp, executor_type, boost::beast::unlimited_rate_policy>;
+using tcp_stream = beast::basic_stream<
+	tcp, executor_type, beast::unlimited_rate_policy>;
 
 using tcp_resolver = net::ip::basic_resolver<tcp, executor_type>;
 using tcp_acceptor = net::basic_socket_acceptor<tcp, executor_type>;
@@ -73,25 +83,142 @@ using awaitable_void = net::awaitable<void, executor_type>;
 
 //////////////////////////////////////////////////////////////////////////
 
-// static std::map<std::string, std::string> mime_map =
-// {
-// 	{ ".html", "text/html; charset=utf-8" },
-// 	{ ".js", "application/javascript" },
-// 	{ ".css", "text/css" },
-// 	{ ".woff", "application/x-font-woff" },
-// 	{ ".png", "image/png" },
-// 	{ ".jpg", "image/jpg" },
-// 	{ ".wav", "audio/x-wav" },
-// 	{ ".mp4", "video/mp4" }
-// };
 
+const auto global_buffer_size = 16;// 5 * 1024 * 1024;
 
-std::string global_filename;
+constexpr static auto head_fmt =
+LR"(<html><head><meta charset="UTF-8"><title>Index of {}</title></head><body bgcolor="white"><h1>Index of {}</h1><hr><pre>)";
+constexpr static auto tail_fmt =
+L"</pre><hr></body></html>";
+constexpr static auto body_fmt =
+L"<a href=\"{}\">{}</a>{}{}              {}\r\n";
+
+const static std::string satisfiable_html =
+R"x1x(<html>
+<head><title>416 Requested Range Not Satisfiable</title></head>
+<body>
+<center><h1>416 Requested Range Not Satisfiable</h1></center>
+<hr><center>nginx/1.20.2</center>
+</body>
+</html>
+)x1x";
+
+const static std::map<std::string, std::string> global_mimes =
+{
+	{ ".html", "text/html; charset=utf-8" },
+	{ ".htm", "text/html; charset=utf-8" },
+	{ ".js", "application/javascript" },
+	{ ".h", "text/javascript" },
+	{ ".hpp", "text/javascript" },
+	{ ".cpp", "text/javascript" },
+	{ ".cxx", "text/javascript" },
+	{ ".cc", "text/javascript" },
+	{ ".c", "text/javascript" },
+	{ ".json", "application/json" },
+	{ ".css", "text/css" },
+	{ ".woff", "application/x-font-woff" },
+	{ ".pdf", "application/pdf" },
+	{ ".png", "image/png" },
+	{ ".jpg", "image/jpg" },
+	{ ".jpeg", "image/jpg" },
+	{ ".gif", "image/gif" },
+	{ ".webp", "image/webp" },
+	{ ".svg", "image/svg+xml" },
+	{ ".wav", "audio/x-wav" },
+	{ ".ogg", "video/ogg" },
+	{ ".mp4", "video/mp4" },
+	{ ".flv", "video/x-flv" },
+	{ ".f4v", "video/x-f4v" },
+	{ ".ts", "video/MP2T" },
+	{ ".mov", "video/quicktime" },
+	{ ".avi", "video/x-msvideo" },
+	{ ".wmv", "video/x-ms-wmv" },
+	{ ".3gp", "video/3gpp" },
+	{ ".mkv", "video/x-matroska" },
+	{ ".7z", "application/x-7z-compressed" },
+	{ ".ppt", "application/vnd.ms-powerpoint" },
+	{ ".zip", "application/zip" },
+	{ ".xz", "application/x-xz" },
+	{ ".xml", "application/xml" },
+	{ ".webm", "video/webm" }
+};
+
+bool global_pipe = false;
+std::string global_path;
 publish_subscribe global_publish_subscribe;
+bool global_quit = false;
 
+using ranges = std::vector<std::pair<int64_t, int64_t>>;
 
+static inline ranges get_ranges(std::string range)
+{
+	range = strutil::remove_spaces(range);
+	boost::ireplace_first(range, "bytes=", "");
 
-awaitable_void readfile(std::string filename)
+	boost::sregex_iterator it(
+		range.begin(), range.end(),
+		boost::regex{ "((\\d+)-(\\d+))+" });
+
+	ranges result;
+	std::for_each(it, {}, [&result](const auto& what) mutable
+		{
+			result.emplace_back(
+				std::make_pair(
+					std::atoll(what[2].str().c_str()),
+					std::atoll(what[3].str().c_str())));
+		});
+
+	if (result.empty() && !range.empty())
+	{
+		if (range.front() == '-')
+		{
+			auto r = std::atoll(range.c_str());
+			result.emplace_back(std::make_pair(r, -1));
+		}
+		else if (range.back() == '-')
+		{
+			auto r = std::atoll(range.c_str());
+			result.emplace_back(std::make_pair(r, -1));
+		}
+	}
+
+	return result;
+}
+
+static inline std::filesystem::path path_cat(
+	const std::wstring& doc, const std::wstring& target)
+{
+	size_t start_pos = 0;
+	for (auto& c : target)
+	{
+		if (!(c == L'/' || c == '\\'))
+			break;
+
+		start_pos++;
+	}
+
+	std::wstring_view sv;
+	std::wstring slash = L"/";
+
+	if (start_pos < target.size())
+		sv = std::wstring_view(target.c_str() + start_pos);
+
+#ifdef WIN32
+	if (doc.back() == L'/' ||
+		doc.back() == L'\\')
+		slash = L"";
+
+	return std::filesystem::path(doc + slash + std::wstring(sv));
+#else
+	if (doc.back() == L'/')
+		slash = L"";
+
+	return std::filesystem::path(
+		boost::nowide::narrow(doc + slash + std::wstring(sv)));
+#endif // WIN32
+};
+
+awaitable_void read_from_stdin()
 {
 	auto ex = co_await net::this_coro::executor;
 
@@ -106,45 +233,26 @@ awaitable_void readfile(std::string filename)
 #endif
 
 	boost::system::error_code ec;
-	bool pipe = false;
 
-	if (filename.empty() || filename == "-")
-	{
 #ifdef _WIN32
-		auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
-		is.assign(stdin_handle, ec);
+	auto stdin_handle = ::GetStdHandle(STD_INPUT_HANDLE);
+	is.assign(stdin_handle, ec);
 #else
-		is.assign(::dup(STDIN_FILENO), ec);
+	is.assign(::dup(STDIN_FILENO), ec);
 #endif
-		pipe = true;
-	}
-	else
-	{
-#ifdef __linux__
-#ifdef BOOST_ASIO_HAS_IO_URING
-		is.open(filename, net::stream_file::read_only, ec);
-#else
-		auto fd = ::open(filename.c_str(), O_RDONLY | O_DIRECT);
-		is.assign(fd, ec);
-#endif
-#elif defined(_WIN32)
-		is.open(filename, net::stream_file::read_only, ec);
-#endif
-	}
 
 	if (ec)
 	{
-		LOG_ERR << "readfile: "
-			<< filename
-			<< " error: "
-			<< ec.message();
+		LOG_ERR << "Open stdin error: " << ec.message();
 		co_return;
 	}
 
-	LOG_DBG << "Open readfile: " << filename;
-	scoped_exit se([&filename]()
+	LOG_DBG << "Open stdin successfully";
+
+	scoped_exit se([]()
 		{
-			LOG_DBG << "Quit readfile: " << filename;
+			global_quit = true;
+			LOG_DBG << "Quit read from stdin";
 		});
 
 	steady_timer timer(ex);
@@ -154,6 +262,9 @@ awaitable_void readfile(std::string filename)
 		auto size = global_publish_subscribe.size();
 		if (size == 0)
 		{
+			if (!is.is_open())
+				break;
+
 			timer.expires_from_now(std::chrono::milliseconds(100));
 			co_await timer.async_wait(use_awaitable[ec]);
 			continue;
@@ -165,10 +276,10 @@ awaitable_void readfile(std::string filename)
 				std::make_shared<std::vector<uint8_t>>(
 					data_length);
 
-			auto gcount = co_await is.async_read_some(
-				net::buffer(data->data(),
-					data_length),
-				use_awaitable[ec]);
+			auto gcount =
+				co_await is.async_read_some(
+					net::buffer(data->data(), data_length),
+					use_awaitable[ec]);
 			if (gcount <= 0)
 				break;
 
@@ -177,22 +288,548 @@ awaitable_void readfile(std::string filename)
 
 			if (global_publish_subscribe.size() == 0)
 			{
-				LOG_DBG << "No client connection with: " << filename;
+				LOG_DBG << "No client connection";
 				break;
 			}
+
 			if (ec)
 				break;
 		}
-
-		if (!pipe)
-			co_return;
 	}
 
 	co_return;
 }
 
-awaitable_void session(tcp_stream stream)
+static inline awaitable_void error_session(
+	tcp_stream& stream,
+	dynamic_request& req,
+	int64_t connection_id,
+	http::status code,
+	const std::string& message)
 {
+	string_response res{
+		code,
+		req.version()
+	};
+
+	res.set(http::field::server, "httpd/1.0");
+	res.set(http::field::content_type, "text/html");
+	res.keep_alive(req.keep_alive());
+	res.body() = message;
+	res.prepare_payload();
+
+	boost::beast::http::serializer<
+		false, string_body, http::fields> sr{ res };
+
+	boost::system::error_code ec;
+	co_await http::async_write(stream,
+		sr,
+		use_awaitable[ec]);
+	if (ec)
+	{
+		LOG_ERR << "Session: "
+			<< connection_id
+			<< ", async_write: "
+			<< ec.message();
+	}
+
+	co_return;
+}
+
+static inline awaitable_void pipe_session(
+	tcp_stream& stream, dynamic_request& req, int64_t connection_id)
+{
+	boost::system::error_code ec;
+
+	using buffer_queue_type = std::deque<publish_subscribe::data_type>;
+	buffer_queue_type buffer_queue;
+
+	auto ex = co_await net::this_coro::executor;
+	steady_timer notify(ex);
+
+	auto fetch_data =
+		[&buffer_queue, &notify]
+	(publish_subscribe::data_type data) mutable
+	{
+		buffer_queue.push_back(data);
+		notify.cancel_one();
+	};
+
+	auto subscribe_handle = global_publish_subscribe.subscribe(fetch_data);
+	scoped_exit se_unsub([&subscribe_handle]() mutable
+		{
+			global_publish_subscribe.unsubscribe(subscribe_handle);
+		});
+
+	auto& lowest_layer = beast::get_lowest_layer(stream);
+	lowest_layer.expires_after(std::chrono::seconds(60));
+
+	buffer_response res{
+		http::status::ok,
+		req.version()
+	};
+
+	res.set(http::field::server, "httpd/1.0");
+	res.set(http::field::content_type, "text/html");
+	res.keep_alive(req.keep_alive());
+	int64_t file_size = -1;
+
+	response_serializer sr(res);
+
+	res.body().data = nullptr;
+	res.body().more = false;
+
+	co_await http::async_write_header(
+		stream,
+		sr,
+		use_awaitable[ec]);
+	if (ec)
+	{
+		LOG_ERR << "Session: "
+			<< connection_id
+			<< ", async_write_header: "
+			<< ec.message();
+		co_return;
+	}
+
+	do
+	{
+		if (buffer_queue.empty())
+		{
+			if (file_size == 0)
+				break;
+
+			notify.expires_from_now(std::chrono::seconds(60));
+			co_await notify.async_wait(use_awaitable[ec]);
+
+			continue;
+		}
+
+		auto p = buffer_queue.front();
+		buffer_queue.pop_front();
+		if (!p)
+		{
+			res.body().data = nullptr;
+			res.body().more = false;
+		}
+		else
+		{
+			res.body().data = p->data();
+			res.body().size = p->size();
+			res.body().more = true;
+		}
+
+		co_await http::async_write(
+			stream,
+			sr,
+			use_awaitable[ec]);
+		if (ec == http::error::need_buffer)
+		{
+			file_size -= p->size();
+			ec = {};
+			continue;
+		}
+
+		if (ec)
+		{
+			LOG_ERR << "Session: "
+				<< connection_id
+				<< ", async_write body: "
+				<< ec.message();
+			co_return;
+		}
+	} while (!sr.is_done());
+
+	co_return;
+}
+
+
+static inline std::string dir_content(const std::filesystem::path& dir)
+{
+	std::string result;
+
+	return result;
+}
+
+static inline awaitable_void dir_session(
+	tcp_stream& stream,
+	dynamic_request& req,
+	int64_t connection_id,
+	std::filesystem::path dir)
+{
+	LOG_DBG << "Session: "
+		<< connection_id
+		<< ", path: "
+		<< dir;
+
+	boost::system::error_code ec;
+
+	std::filesystem::directory_iterator end;
+	std::filesystem::directory_iterator it(dir, ec);
+
+	if (ec)
+	{
+		string_response res{
+			http::status::found,
+			req.version()
+		};
+
+		res.set(http::field::location, "/");
+		res.keep_alive(req.keep_alive());
+		res.prepare_payload();
+
+		http::serializer<
+			false,
+			string_body,
+			http::fields> sr(res);
+
+		co_await http::async_write(
+			stream,
+			sr,
+			use_awaitable[ec]);
+
+		if (ec)
+			LOG_ERR << "Session: "
+			<< connection_id
+			<< ", err: "
+			<< ec.message();
+
+		co_return;
+	}
+
+	std::vector<std::wstring> path_list;
+
+	for (; it != end; it++)
+	{
+		const auto& item = it->path();
+		std::filesystem::path realpath = item;
+		std::wstring time_string;
+
+		auto ftime = std::filesystem::last_write_time(item, ec);
+		if (ec)
+		{
+#ifdef WIN32
+			if (item.string().size() > MAX_PATH)
+			{
+				auto str = item.string();
+				boost::replace_all(str, "/", "\\");
+				realpath = "\\\\?\\" + str;
+				ftime = std::filesystem::last_write_time(realpath, ec);
+			}
+#endif
+		}
+
+		const auto stime =
+			std::chrono::time_point_cast<
+			std::chrono::system_clock::duration>(
+				ftime -
+				std::filesystem::file_time_type::clock::now() +
+				std::chrono::system_clock::now());
+
+		const auto write_time =
+			std::chrono::system_clock::to_time_t(stime);
+
+		char tmbuf[64] = { 0 };
+		auto tm = std::localtime(&write_time);
+
+		std::strftime(
+			tmbuf,
+			sizeof(tmbuf),
+			"%m-%d-%Y %H:%M",
+			tm);
+
+		time_string = boost::nowide::widen(tmbuf);
+		std::wstring wstr;
+
+		if (std::filesystem::is_directory(realpath, ec))
+		{
+			auto leaf = item.filename().u16string();
+			leaf = leaf + u"/";
+			wstr.assign(leaf.begin(), leaf.end());
+
+			int width = 50 - ((int)leaf.size() + 1);
+			width = width < 0 ? 10 : width;
+			std::wstring space(width, L' ');
+
+			auto str = fmt::format(body_fmt,
+				wstr,
+				wstr,
+				space,
+				time_string,
+				L"[DIRECTORY]");
+
+			path_list.push_back(str);
+		}
+		else
+		{
+			auto leaf = item.filename().u16string();
+			wstr.assign(leaf.begin(), leaf.end());
+
+			auto sz = static_cast<float>(
+				std::filesystem::file_size(
+					realpath, ec));
+			if (ec)
+				sz = 0;
+
+			std::wstring filesize =
+				boost::nowide::widen(
+					strutil::add_suffix(sz));
+
+			int width = 50 - (int)leaf.size();
+			width = width < 0 ? 10 : width;
+			std::wstring space(width, L' ');
+
+			auto str = fmt::format(body_fmt,
+				wstr,
+				wstr,
+				space,
+				time_string,
+				filesize);
+
+			path_list.push_back(str);
+		}
+	}
+
+	auto dirs = boost::nowide::narrow(dir.u16string());
+	dirs = boost::replace_first_copy(dirs, global_path, "");
+	auto root_path =
+		boost::nowide::widen(dirs);
+
+	std::wstring head =
+		fmt::format(
+			head_fmt,
+			root_path,
+			root_path);
+
+	std::wstring body =
+		fmt::format(
+			body_fmt,
+			L"../",
+			L"../",
+			L"",
+			L"",
+			L"");
+
+	std::sort(path_list.begin(), path_list.end());
+	for (auto& s : path_list)
+		body += s;
+	body = head + body + tail_fmt;
+
+	string_response res{
+		http::status::ok,
+		req.version()
+	};
+
+	res.keep_alive(req.keep_alive());
+	res.body() = boost::nowide::narrow(body);
+	res.prepare_payload();
+
+	http::serializer<
+		false,
+		string_body,
+		http::fields> sr(res);
+
+	co_await http::async_write(
+		stream,
+		sr,
+		use_awaitable[ec]);
+
+	if (ec)
+		LOG_ERR << "Session: "
+		<< connection_id
+		<< ", err: "
+		<< ec.message();
+
+	co_return;
+}
+
+static inline awaitable_void file_session(
+	tcp_stream& stream,
+	dynamic_request& req,
+	int64_t connection_id,
+	std::filesystem::path file)
+{
+	LOG_DBG << "Session: "
+		<< connection_id
+		<< ", file: "
+		<< file;
+
+	boost::system::error_code ec;
+	size_t content_length = std::filesystem::file_size(file, ec);
+
+	if (req.method() != http::verb::get)
+	{
+		co_await error_session(
+			stream,
+			req,
+			connection_id,
+			http::status::bad_request,
+			"Bad request");
+
+		co_return;
+	}
+
+#ifdef WIN32
+	auto filename = file.wstring();
+	boost::replace_all(filename, "/", "\\");
+	// Windows use unc path workaround.
+	filename = L"\\\\?\\" + filename;
+	file = filename;
+#endif
+	if (!std::filesystem::exists(file))
+	{
+		co_await error_session(
+			stream,
+			req,
+			connection_id,
+			http::status::not_found,
+			"Not Found");
+
+		co_return;
+	}
+
+	std::fstream file_stream(
+		file.string(),
+		std::ios_base::binary |
+		std::ios_base::in);
+
+	auto range = get_ranges(req["Range"]);
+	http::status st = http::status::ok;
+
+	if (!range.empty())
+	{
+		st = http::status::partial_content;
+		auto& r = range.front();
+
+		if (r.second == -1)
+		{
+			if (r.first < 0)
+			{
+				r.first = content_length + r.first;
+				r.second = content_length - 1;
+			}
+			else if (r.first >= 0)
+			{
+				r.second = content_length - 1;
+			}
+		}
+
+		file_stream.seekg(r.first, std::ios_base::beg);
+	}
+
+	buffer_response res{ st, req.version() };
+	res.set(http::field::server, "httpd/1.0");
+	auto ext = strutil::to_lower(file.extension().string());
+
+	if (global_mimes.count(ext))
+		res.set(http::field::content_type, global_mimes.at(ext));
+	else
+		res.set(http::field::content_type, "text/plain");
+
+	if (st == http::status::ok)
+		res.set(http::field::accept_ranges, "bytes");
+
+	if (st == http::status::partial_content)
+	{
+		const auto& r = range.front();
+
+		if (r.second < r.first && r.second >= 0)
+		{
+			co_await error_session(
+				stream,
+				req,
+				connection_id,
+				http::status::range_not_satisfiable,
+				satisfiable_html);
+
+			co_return;
+		}
+
+		std::string content_range = fmt::format(
+			"bytes {}-{}/{}",
+			r.first,
+			r.second,
+			content_length);
+
+		content_length = r.second - r.first + 1;
+		res.set(http::field::content_range, content_range);
+	}
+
+	res.keep_alive(req.keep_alive());
+	res.content_length(content_length);
+
+	response_serializer sr(res);
+
+	res.body().data = nullptr;
+	res.body().more = false;
+
+	co_await http::async_write_header(
+		stream,
+		sr,
+		use_awaitable[ec]);
+	if (ec)
+	{
+		LOG_WARN << "Session: "
+			<< connection_id
+			<< ", async_write_header: "
+			<< ec.message();
+
+		co_return;
+	}
+
+	char bufs[global_buffer_size];
+	std::streamsize total = 0;
+
+	do
+	{
+		file_stream.read(bufs, global_buffer_size);
+
+		auto bytes_transferred = std::min<std::streamsize>(
+			file_stream.gcount(),
+			content_length - total);
+
+		if (bytes_transferred == 0 ||
+			total >= (std::streamsize)content_length)
+		{
+			res.body().data = nullptr;
+			res.body().more = false;
+		}
+		else
+		{
+			res.body().data = bufs;
+			res.body().size = bytes_transferred;
+			res.body().more = true;
+		}
+
+		co_await http::async_write(
+			stream,
+			sr,
+			use_awaitable[ec]);
+
+		total += bytes_transferred;
+		if (ec == http::error::need_buffer)
+		{
+			ec = {};
+			continue;
+		}
+		if (ec)
+		{
+			LOG_WARN << "Session: "
+				<< connection_id
+				<< ", async_write: "
+				<< ec.message();
+			co_return;
+		}
+	} while (!sr.is_done());
+
+	co_return;
+}
+
+static inline awaitable_void session(tcp_stream stream)
+{
+	static int64_t connection_id = 0;
+	connection_id++;
+
 	boost::system::error_code ec;
 
 	std::string remote_host;
@@ -211,38 +848,21 @@ awaitable_void session(tcp_stream stream)
 		}
 	}
 
-	LOG_DBG << "Client: " << remote_host << " is coming...";
+	LOG_DBG << "Session: "
+		<< connection_id
+		<< ", host: "
+		<< remote_host
+		<< " is coming...";
 
-	auto ex = co_await net::this_coro::executor;
-
-	using buffer_queue_type = std::deque<publish_subscribe::data_type>;
-	buffer_queue_type buffer_queue;
-
-	steady_timer timer(ex);
-
-	auto fetch_data =
-		[&buffer_queue, &timer]
-		(publish_subscribe::data_type data) mutable
+	scoped_exit se_quit([&]()
 		{
-			buffer_queue.push_back(data);
-			timer.cancel_one();
-		};
-
-	auto subscribe_handle = global_publish_subscribe.subscribe(fetch_data);
-	scoped_exit se_unsub([&subscribe_handle]() mutable
-		{
-			global_publish_subscribe.unsubscribe(subscribe_handle);
+			LOG_DBG << "Session: " << connection_id << ", left...";
 		});
 
-	scoped_exit se_quit([&remote_host]()
-		{
-			LOG_DBG << "Session: " << remote_host << " left...";
-		});
+	flat_buffer buffer;
+	buffer.reserve(global_buffer_size);
 
-	boost::beast::flat_buffer buffer;
-
-	const auto httpd_receive_buffer_size = 5 * 1024 * 1024;
-	buffer.reserve(httpd_receive_buffer_size);
+	bool keep_alive = false;
 
 	for (;;)
 	{
@@ -255,7 +875,8 @@ awaitable_void session(tcp_stream stream)
 			use_awaitable[ec]);
 		if (ec)
 		{
-			LOG_ERR << remote_host
+			LOG_ERR << "Session: "
+				<< connection_id
 				<< ", async_read_header: "
 				<< ec.message();
 			co_return;
@@ -272,187 +893,153 @@ awaitable_void session(tcp_stream stream)
 				use_awaitable[ec]);
 			if (ec)
 			{
-				LOG_ERR << remote_host
+				LOG_ERR << "Session: "
+					<< connection_id
 					<< ", expect async_write: "
 					<< ec.message();
 				co_return;
 			}
 		}
 
-		auto req = parser.release();
-		std::string target = std::string(req.target());
-		if (!boost::beast::websocket::is_upgrade(req))
+		dynamic_request req = parser.release();
+
+		if (beast::websocket::is_upgrade(req))
+			co_return;
+
+		if (global_pipe)
 		{
-			bool pipe = true;
-			bool is_dir = std::filesystem::is_directory(global_filename);
-			std::string target_filename = global_filename;
-
-			if (is_dir)
-			{
-				target_filename = global_filename + target;
-				if (!std::filesystem::exists(target_filename) ||
-					std::filesystem::is_directory(target_filename))
-				{
-					boost::system::error_code ec;
-					string_response res {
-						http::status::bad_request,
-						req.version()
-					};
-					res.set(http::field::server, "httpd/1.0");
-					res.set(http::field::content_type, "text/html");
-					res.keep_alive(req.keep_alive());
-					res.body() = "file not exists";
-					res.prepare_payload();
-
-					boost::beast::http::serializer<false,
-						string_body,
-						http::fields> sr{ res };
-					co_await http::async_write(stream,
-						sr,
-						use_awaitable[ec]);
-					if (ec)
-					{
-						LOG_ERR << remote_host
-							<< ", async_write: "
-							<< ec.message();
-					}
-
-					co_return;
-				}
-
-				pipe = false;
-
-				net::co_spawn(ex,
-					readfile(target_filename),
-					net::detached);
-			}
-			else
-			{
-				// 如果是pipe, 则直接启动文件读.
-				if (!target_filename.empty() && target_filename != "-")
-				{
-					pipe = false;
-
-					net::co_spawn(ex,
-						readfile(target_filename),
-						net::detached);
-				}
-			}
-
-			auto& lowest_layer = boost::beast::get_lowest_layer(stream);
-			lowest_layer.expires_after(std::chrono::seconds(60));
-
-			buffer_response res{
-				http::status::ok,
-				req.version()
-			};
-			res.set(http::field::server, "httpd/1.0");
-			res.set(http::field::content_type, "text/html");
-			res.keep_alive(req.keep_alive());
-			int64_t file_size = -1;
-			if (!pipe)
-			{
-				file_size = std::filesystem::file_size(target_filename);
-				res.content_length(file_size);
-			}
-
-			response_serializer sr{ res };
-
-			res.body().data = nullptr;
-			res.body().more = false;
-
-			co_await http::async_write_header(
+			co_await pipe_session(
 				stream,
-				sr,
-				use_awaitable[ec]);
-			if (ec)
-			{
-				LOG_ERR << remote_host
-					<< ", async_write_header: "
-					<< ec.message();
-				co_return;
-			}
-
-			do
-			{
-				if (buffer_queue.empty())
-				{
-					if (file_size == 0)
-						break;
-
-					timer.expires_from_now(std::chrono::seconds(60));
-					co_await timer.async_wait(use_awaitable[ec]);
-					continue;
-				}
-
-				auto p = buffer_queue.front();
-				buffer_queue.pop_front();
-				if (!p)
-				{
-					res.body().data = nullptr;
-					res.body().more = false;
-				}
-				else
-				{
-					res.body().data = p->data();
-					res.body().size = p->size();
-					res.body().more = true;
-				}
-
-				co_await http::async_write(
-					stream,
-					sr,
-					use_awaitable[ec]);
-				if (ec == http::error::need_buffer)
-				{
-					file_size -= p->size();
-					ec = {};
-					continue;
-				}
-
-				if (ec)
-				{
-					LOG_ERR << remote_host
-						<< ", async_write body: "
-						<< ec.message();
-					co_return;
-				}
-			} while (!sr.is_done());
+				req,
+				connection_id);
 
 			co_return;
 		}
 
-		LOG_ERR << remote_host << ", upgrade to websocket not supported!";
+		if (std::filesystem::is_regular_file(global_path))
+		{
+			co_await file_session(
+				stream,
+				req,
+				connection_id,
+				global_path);
+
+			if (keep_alive)
+				continue;
+			co_return;
+		}
+
+		if (!std::filesystem::is_directory(global_path))
+		{
+			co_await error_session(
+				stream,
+				req,
+				connection_id,
+				http::status::internal_server_error,
+				"internal server error");
+
+			if (keep_alive)
+				continue;
+			co_return;
+		}
+
+		keep_alive = req.keep_alive();
+		std::string target;
+
+		strutil::unescape(
+			{
+				req.target().data(),
+				req.target().size()
+			},
+			target);
+
+		auto current_path = path_cat(
+			boost::nowide::widen(global_path),
+			boost::nowide::widen(target));
+
+		if (std::filesystem::is_directory(current_path))
+		{
+			co_await dir_session(
+				stream,
+				req,
+				connection_id,
+				current_path);
+
+			if (keep_alive)
+				continue;
+			co_return;
+		}
+
+		if (std::filesystem::is_regular_file(current_path))
+		{
+			co_await file_session(
+				stream,
+				req,
+				connection_id,
+				current_path);
+
+			if (keep_alive)
+				continue;
+			co_return;
+		}
+
+		if (!std::filesystem::exists(current_path))
+		{
+			co_await error_session(
+				stream,
+				req,
+				connection_id,
+				http::status::not_found,
+				"Not Found");
+
+			if (keep_alive)
+				continue;
+			co_return;
+		}
+
+		co_await error_session(
+			stream,
+			req,
+			connection_id,
+			http::status::bad_request,
+			"Bad request");
+
+		if (keep_alive)
+			continue;
 		co_return;
 	}
 
 	co_return;
 }
 
-awaitable_void listen(tcp_acceptor& acceptor)
+static inline awaitable_void listen(tcp_acceptor& acceptor)
 {
 	for (;;)
 	{
 		boost::system::error_code ec;
 
-		auto client = co_await acceptor.async_accept(
-			use_awaitable[ec]);
+		auto client =
+			co_await acceptor.async_accept(
+				use_awaitable[ec]);
 		if (ec)
 			break;
 
 		{
-			boost::asio::socket_base::keep_alive option(true);
+			net::socket_base::keep_alive option(true);
 			client.set_option(option, ec);
 		}
 
 		{
-			boost::asio::ip::tcp::no_delay option(true);
+			net::ip::tcp::no_delay option(true);
 			client.set_option(option, ec);
 		}
 
-		auto ex = client.get_executor();
-		co_spawn(ex,
-			session(tcp_stream(std::move(client))),
+		auto ex(client.get_executor());
+		tcp_stream stream(std::move(client));
+
+		co_spawn(
+			ex,
+			session(std::move(stream)),
 			net::detached);
 	}
 
@@ -471,7 +1058,7 @@ int main(int argc, char** argv)
 	desc.add_options()
 		("help,h", "Help message.")
 		("listen", po::value<std::string>(&httpd_listen)->default_value("[::0]:80")->value_name("ip:port"), "Httpd tcp listen.")
-		("file", po::value<std::string>(&global_filename)->value_name("file/pipe"), "Filename or pipe.")
+		("file", po::value<std::string>(&global_path)->value_name("file/pipe"), "Filename or pipe.")
 		;
 
 	po::variables_map vm;
@@ -496,7 +1083,11 @@ int main(int argc, char** argv)
 	bool v6only;
 
 	// 解析侦听端口.
-	if (!parse_endpoint_string(httpd_listen, host, port, v6only))
+	if (!parse_endpoint_string(
+		httpd_listen,
+		host,
+		port,
+		v6only))
 	{
 		std::cerr << "Cannot parse listen: " << httpd_listen << "\n";
 		return EXIT_FAILURE;
@@ -516,16 +1107,20 @@ int main(int argc, char** argv)
 	// 启动tcp侦听.
 	for (int i = 0; i < 16; i++)
 	{
-		net::co_spawn(ctx.get_executor(),
+		net::co_spawn(
+			ctx.get_executor(),
 			listen(acceptor),
 			net::detached);
 	}
 
 	// 如果是pipe, 则直接启动文件读.
-	if (global_filename.empty() || global_filename == "-")
+	if (global_path.empty() || global_path == "-")
 	{
-		net::co_spawn(ctx.get_executor(),
-			readfile(global_filename),
+		global_pipe = true;
+
+		net::co_spawn(
+			ctx.get_executor(),
+			read_from_stdin(),
 			net::detached);
 	}
 
