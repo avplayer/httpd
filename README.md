@@ -1,7 +1,8 @@
-# httpd
+# httpd [![actions workflow](https://github.com/avplayer/httpd/actions/workflows/Build.yml/badge.svg)](https://github.com/avplayer/httpd/actions)
 
-一个基于 c++20 实现的极高性能 http 服务，可用于静态文件或标准输入设备的 http 服务器。
+##### 一个基于 c++20 实现的极高性能 http 服务，可用于静态文件或标准输入设备的 http 服务器。
 
+<br>
 <br>
 
 ### Linux 平台下编译：
