@@ -48,5 +48,9 @@ namespace asio_util
 // stream.async_read(buffer, net_awaitable);
 //
 
-[[maybe_unused]] inline constexpr asio_util::asio_use_awaitable_t<> net_awaitable;
-[[maybe_unused]] inline constexpr asio_util::asio_use_awaitable_t<boost::asio::io_context::executor_type> use_awaitable;
+[[maybe_unused]] inline constexpr
+	asio_util::asio_use_awaitable_t<> net_awaitable;
+
+[[maybe_unused]] inline constexpr
+	asio_util::asio_use_awaitable_t<
+		boost::asio::io_context::executor_type> ioc_awaitable;

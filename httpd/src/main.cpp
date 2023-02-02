@@ -266,7 +266,7 @@ awaitable_void read_from_stdin()
 				break;
 
 			timer.expires_from_now(std::chrono::milliseconds(100));
-			co_await timer.async_wait(use_awaitable[ec]);
+			co_await timer.async_wait(ioc_awaitable[ec]);
 			continue;
 		}
 
@@ -279,7 +279,7 @@ awaitable_void read_from_stdin()
 			auto gcount =
 				co_await is.async_read_some(
 					net::buffer(data->data(), data_length),
-					use_awaitable[ec]);
+					ioc_awaitable[ec]);
 			if (gcount <= 0)
 				break;
 
@@ -324,7 +324,7 @@ static inline awaitable_void error_session(
 	boost::system::error_code ec;
 	co_await http::async_write(stream,
 		sr,
-		use_awaitable[ec]);
+		ioc_awaitable[ec]);
 	if (ec)
 	{
 		LOG_ERR << "Session: "
@@ -382,7 +382,7 @@ static inline awaitable_void pipe_session(
 	co_await http::async_write_header(
 		stream,
 		sr,
-		use_awaitable[ec]);
+		ioc_awaitable[ec]);
 	if (ec)
 	{
 		LOG_ERR << "Session: "
@@ -400,7 +400,7 @@ static inline awaitable_void pipe_session(
 				break;
 
 			notify.expires_from_now(std::chrono::seconds(60));
-			co_await notify.async_wait(use_awaitable[ec]);
+			co_await notify.async_wait(ioc_awaitable[ec]);
 
 			continue;
 		}
@@ -422,7 +422,7 @@ static inline awaitable_void pipe_session(
 		co_await http::async_write(
 			stream,
 			sr,
-			use_awaitable[ec]);
+			ioc_awaitable[ec]);
 		if (ec == http::error::need_buffer)
 		{
 			file_size -= p->size();
@@ -481,7 +481,7 @@ static inline awaitable_void dir_session(
 		co_await http::async_write(
 			stream,
 			sr,
-			use_awaitable[ec]);
+			ioc_awaitable[ec]);
 
 		if (ec)
 			LOG_ERR << "Session: "
@@ -630,7 +630,7 @@ static inline awaitable_void dir_session(
 	co_await http::async_write(
 		stream,
 		sr,
-		use_awaitable[ec]);
+		ioc_awaitable[ec]);
 
 	if (ec)
 		LOG_ERR << "Session: "
@@ -764,7 +764,7 @@ static inline awaitable_void file_session(
 	co_await http::async_write_header(
 		stream,
 		sr,
-		use_awaitable[ec]);
+		ioc_awaitable[ec]);
 	if (ec)
 	{
 		LOG_WARN << "Session: "
@@ -802,7 +802,7 @@ static inline awaitable_void file_session(
 		co_await http::async_write(
 			stream,
 			sr,
-			use_awaitable[ec]);
+			ioc_awaitable[ec]);
 
 		total += bytes_transferred;
 		if (ec == http::error::need_buffer)
@@ -870,7 +870,7 @@ static inline awaitable_void session(tcp_stream stream)
 		co_await http::async_read_header(stream,
 			buffer,
 			parser,
-			use_awaitable[ec]);
+			ioc_awaitable[ec]);
 
 		if (ec)
 			co_return;
@@ -883,7 +883,7 @@ static inline awaitable_void session(tcp_stream stream)
 
 			co_await http::async_write(stream,
 				res,
-				use_awaitable[ec]);
+				ioc_awaitable[ec]);
 			if (ec)
 			{
 				LOG_ERR << "Session: "
@@ -1013,7 +1013,7 @@ static inline awaitable_void listen(tcp_acceptor& acceptor)
 
 		auto client =
 			co_await acceptor.async_accept(
-				use_awaitable[ec]);
+				ioc_awaitable[ec]);
 		if (ec)
 			break;
 
