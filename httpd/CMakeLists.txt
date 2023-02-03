@@ -11,6 +11,7 @@ file(GLOB httpd_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/scoped_exit.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/use_awaitable.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/misc.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/strutil.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/publish_subscribe.hpp
 )
 
