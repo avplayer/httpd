@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <optional>
 
 //! The strutil namespace
 namespace strutil
@@ -777,5 +778,109 @@ namespace strutil
 		ret += "PB";
 		if (suffix) ret += suffix;
 		return ret;
+	}
+
+	static inline std::optional<std::u16string> utf8_utf16(std::u8string_view utf8)
+	{
+		const char8_t* first = &utf8[0];
+		const char8_t* last = first + utf8.size();
+
+		std::u16string result(utf8.size(), char16_t{ 0 });
+		char16_t* dest = &result[0];
+		char16_t* next = nullptr;
+
+		using codecvt_type = std::codecvt<char16_t, char8_t, std::mbstate_t>;
+
+		codecvt_type* cvt = new codecvt_type;
+
+		// manages reference to codecvt facet to free memory.
+		std::locale loc;
+		loc = std::locale(loc, cvt);
+
+		codecvt_type::state_type state{};
+
+		auto ret = cvt->in(
+			state, first, last, first, dest, dest + result.size(), next);
+		if (ret != codecvt_type::ok)
+			return {};
+
+		result.resize(static_cast<size_t>(next - dest));
+		return result;
+	}
+
+	static inline std::optional<std::u8string> utf16_utf8(std::u16string_view utf16)
+	{
+		const char16_t* first = &utf16[0];
+		const char16_t* last = first + utf16.size();
+
+		std::u8string result((utf16.size() + 1) * 6, char{ 0 });
+		char8_t* dest = &result[0];
+		char8_t* next = nullptr;
+
+		using codecvt_type = std::codecvt<char16_t, char8_t, std::mbstate_t>;
+
+		codecvt_type* cvt = new codecvt_type;
+		// manages reference to codecvt facet to free memory.
+		std::locale loc;
+		loc = std::locale(loc, cvt);
+
+		codecvt_type::state_type state{};
+
+		auto ret = cvt->out(
+			state, first, last, first, dest, dest + result.size(), next);
+		if (ret != codecvt_type::ok)
+			return {};
+
+		result.resize(static_cast<size_t>(next - dest));
+		return result;
+	}
+
+	static inline std::optional<std::wstring> string_wide(std::string_view src)
+	{
+		const char* first = src.data();
+		const char* last = src.data() + src.size();
+		const char* snext = nullptr;
+
+		std::wstring result(src.size() + 1, wchar_t{ 0 });
+
+		wchar_t* dest = result.data();
+		wchar_t* dnext = nullptr;
+
+		using codecvt_type = std::codecvt<wchar_t, char, mbstate_t>;
+		std::locale sys_locale("");
+		mbstate_t in_state;
+
+		auto ret = std::use_facet<codecvt_type>(sys_locale).in(
+			in_state, first, last, snext, dest, dest + result.size(), dnext);
+		if (ret != codecvt_type::ok)
+			return {};
+
+		result.resize(static_cast<size_t>(dnext - dest));
+		return result;
+	}
+
+	static inline std::optional<std::string> wide_string(std::wstring_view src)
+	{
+		const wchar_t* first = src.data();
+		const wchar_t* last = src.data() + src.size();
+		const wchar_t* snext = nullptr;
+
+		std::string result((src.size() + 1) * 6, char(0));
+		char* dest = &result[0];
+		char* dnext = nullptr;
+
+		using codecvt_type = std::codecvt<wchar_t, char, mbstate_t>;
+		std::locale sys_locale("");
+		mbstate_t out_state;
+
+		auto ret = std::use_facet<codecvt_type>(sys_locale).out(
+			out_state, first, last, snext,
+			dest, dest + result.size(), dnext);
+
+		if (ret != codecvt_type::ok)
+			return {};
+
+		result.resize(static_cast<size_t>(dnext - dest));
+		return result;
 	}
 }
