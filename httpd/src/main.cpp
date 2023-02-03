@@ -204,6 +204,7 @@ static inline std::filesystem::path path_cat(
 		sv = std::wstring_view(target.c_str() + start_pos);
 
 #ifdef WIN32
+	slash = L"\\";
 	if (doc.back() == L'/' ||
 		doc.back() == L'\\')
 		slash = L"";
