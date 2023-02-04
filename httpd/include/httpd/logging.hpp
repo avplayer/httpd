@@ -73,52 +73,52 @@
 
 //////////////////////////////////////////////////////////////////////////
 #if defined(_WIN32) || defined(WIN32)
-#	ifndef WIN32_LEAN_AND_MEAN
-#		define WIN32_LEAN_AND_MEAN
-#	endif // !WIN32_LEAN_AND_MEAN
-#	include <windows.h>
+# ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+# endif // !WIN32_LEAN_AND_MEAN
+# include <windows.h>
 #endif // _WIN32
 
 #ifdef USE_SYSTEMD_LOGGING
-#if __has_include(<systemd/sd-journal.h>)
-#	include <systemd/sd-journal.h>
-#else
-#error "systemd/sd-journal.h not found"
-#endif
+# if __has_include(<systemd/sd-journal.h>)
+#  include <systemd/sd-journal.h>
+# else
+#  error "systemd/sd-journal.h not found"
+# endif
 #endif
 
 //////////////////////////////////////////////////////////////////////////
 #if defined(__has_include)
-#	if __has_include(<zlib.h>)
-#		include <zlib.h>
-#		ifndef LOGGING_COMPRESS_LOGS
-#			define LOGGING_COMPRESS_LOGS
-#		endif
-#	endif
+# if __has_include(<zlib.h>)
+#  include <zlib.h>
+#  ifndef LOGGING_COMPRESS_LOGS
+#   define LOGGING_COMPRESS_LOGS
+#  endif
+# endif
 #else
-#	ifdef LOGGING_COMPRESS_LOGS
-#		include <zlib.h>
-#	endif
+# ifdef LOGGING_COMPRESS_LOGS
+#  include <zlib.h>
+# endif
 #endif
 
 #if defined(__cpp_lib_format)
-#	include <format>
+# include <format>
 #endif
 
 #if !defined(__cpp_lib_format)
-#ifdef _MSC_VER
-#	pragma warning(push)
-#	pragma warning(disable: 4244 4127)
-#endif // _MSC_VER
+# ifdef _MSC_VER
+#  pragma warning(push)
+#  pragma warning(disable: 4244 4127)
+# endif // _MSC_VER
 
-#ifdef __clang__
-#	pragma clang diagnostic push
-#	pragma clang diagnostic ignored "-Wexpansion-to-defined"
-#endif
+# ifdef __clang__
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wexpansion-to-defined"
+# endif
 
-#include <fmt/ostream.h>
-#include <fmt/printf.h>
-#include <fmt/format.h>
+# include <fmt/ostream.h>
+# include <fmt/printf.h>
+# include <fmt/format.h>
 
 namespace std {
 	using ::fmt::format;
@@ -128,13 +128,13 @@ namespace std {
 	using ::fmt::make_format_args;
 }
 
-#ifdef __clang__
-#	pragma clang diagnostic pop
-#endif
+# ifdef __clang__
+#  pragma clang diagnostic pop
+# endif
 
-#ifdef _MSC_VER
-#	pragma warning(pop)
-#endif
+# ifdef _MSC_VER
+#  pragma warning(pop)
+# endif
 #endif
 
 
