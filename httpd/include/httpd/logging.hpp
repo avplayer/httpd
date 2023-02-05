@@ -78,6 +78,7 @@
 
 
 //////////////////////////////////////////////////////////////////////////
+
 #if defined(_WIN32) || defined(WIN32)
 # ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
@@ -94,16 +95,18 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////
-#if defined(__has_include)
-# if __has_include(<zlib.h>)
-#  include <zlib.h>
-#  ifndef LOGGING_COMPRESS_LOGS
-#   define LOGGING_COMPRESS_LOGS
+#ifndef LOGGING_DISABLE_COMPRESS_LOGS
+# if defined(__has_include)
+#  if __has_include(<zlib.h>)
+#   include <zlib.h>
+#   ifndef LOGGING_ENABLE_COMPRESS_LOGS
+#    define LOGGING_ENABLE_COMPRESS_LOGS
+#   endif
 #  endif
-# endif
-#else
-# ifdef LOGGING_COMPRESS_LOGS
-#  include <zlib.h>
+# else
+#  ifdef LOGGING_ENABLE_COMPRESS_LOGS
+#   include <zlib.h>
+#  endif
 # endif
 #endif
 
@@ -170,7 +173,7 @@ namespace util {
 #endif // LOG_MAXFILE_SIZE
 
 
-#ifdef LOGGING_COMPRESS_LOGS
+#ifdef LOGGING_ENABLE_COMPRESS_LOGS
 
 namespace logging_compress__ {
 
@@ -330,6 +333,8 @@ namespace logger_aux__ {
 		return false;
 	}
 
+	inline namespace utf {
+
 	inline uint32_t decode(uint32_t* state, uint32_t* codep, uint32_t byte)
 	{
 		static constexpr uint8_t utf8d[] =
@@ -473,23 +478,6 @@ namespace logger_aux__ {
 		return result;
 	}
 
-	inline std::string from_u8string(const std::string& s)
-	{
-		return s;
-	}
-
-	inline std::string from_u8string(std::string&& s)
-	{
-		return s;
-	}
-
-#if defined(__cpp_lib_char8_t)
-	inline std::string from_u8string(const std::u8string& s)
-	{
-		return std::string(s.begin(), s.end());
-	}
-#endif
-
 #ifdef WIN32
 	inline std::optional<std::wstring> string_wide(const std::string_view& src)
 	{
@@ -620,6 +608,27 @@ namespace logger_aux__ {
 		return result;
 	}
 #endif
+
+	} // namespace utf
+
+	inline std::string from_u8string(const std::string& s)
+	{
+		return s;
+	}
+
+	inline std::string from_u8string(std::string&& s)
+	{
+		return s;
+	}
+
+#if defined(__cpp_lib_char8_t)
+	inline std::string from_u8string(const std::u8string& s)
+	{
+		return std::string(s.begin(), s.end());
+	}
+#endif
+
+	//////////////////////////////////////////////////////////////////////////
 
 	template <class Lock>
 	Lock& lock_single()
@@ -766,7 +775,7 @@ public:
 			std::filesystem::resize_file(m_log_path, 0, ec);
 			m_log_size = 0;
 
-#ifdef LOGGING_COMPRESS_LOGS
+#ifdef LOGGING_ENABLE_COMPRESS_LOGS
 			auto fn = filename.string();
 			std::thread th([fn]()
 				{
