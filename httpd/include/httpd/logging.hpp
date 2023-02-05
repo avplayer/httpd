@@ -70,6 +70,12 @@
 # endif
 #endif
 
+#ifdef WIN32
+# ifndef LOGGING_DISABLE_AUTO_UTF8
+#  define LOGGING_ENABLE_AUTO_UTF8
+# endif // !LOGGING_DISABLE_WINDOWS_AUTO_UTF8
+#endif // WIN32
+
 
 //////////////////////////////////////////////////////////////////////////
 #if defined(_WIN32) || defined(WIN32)
@@ -366,6 +372,105 @@ namespace logger_aux__ {
 				return false;
 
 		return state == 0;
+	}
+
+	inline std::optional<std::wstring> utf8_convert(std::string_view str)
+	{
+		uint8_t* start = (uint8_t*)str.data();
+		uint8_t* end = start + str.size();
+
+		std::wstring wstr;
+		uint32_t codepoint;
+		uint32_t state = 0;
+
+		for (; start != end; ++start)
+		{
+			switch (decode(&state, &codepoint, *start))
+			{
+			case 0:
+				if (codepoint <= 0xFFFF) [[likely]]
+				{
+					wstr.push_back(codepoint);
+					continue;
+				}
+				wstr.push_back(0xD7C0 + (codepoint >> 10));
+				wstr.push_back(0xDC00 + (codepoint & 0x3FF));
+				continue;
+			case 1:
+				return {};
+			default:
+				;
+			}
+		}
+
+		if (state != 0)
+			return {};
+
+		return wstr;
+	}
+
+	inline bool append(uint32_t cp, std::string& result)
+	{
+		if (!(cp <= 0x0010ffffu && !(cp >= 0xd800u && cp <= 0xdfffu)))
+			return false;
+
+		if (cp < 0x80)
+		{
+			result.push_back(static_cast<uint8_t>(cp));
+		}
+		else if (cp < 0x800)
+		{
+			result.push_back(static_cast<uint8_t>((cp >> 6) | 0xc0));
+			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
+		}
+		else if (cp < 0x10000)
+		{
+			result.push_back(static_cast<uint8_t>((cp >> 12) | 0xe0));
+			result.push_back(static_cast<uint8_t>(((cp >> 6) & 0x3f) | 0x80));
+			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
+		}
+		else {
+			result.push_back(static_cast<uint8_t>((cp >> 18) | 0xf0));
+			result.push_back(static_cast<uint8_t>(((cp >> 12) & 0x3f) | 0x80));
+			result.push_back(static_cast<uint8_t>(((cp >> 6) & 0x3f) | 0x80));
+			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
+		}
+
+		return true;
+	}
+
+	inline std::optional<std::string> utf16_convert(std::wstring_view wstr)
+	{
+		std::string result;
+
+		auto end = wstr.cend();
+		for (auto start = wstr.cbegin(); start != end;)
+		{
+			uint32_t cp = static_cast<uint16_t>(0xffff & *start++);
+
+			if (cp >= 0xdc00u && cp <= 0xdfffu) [[unlikely]]
+				return {};
+
+			if (cp >= 0xd800u && cp <= 0xdbffu)
+			{
+				if (start == end) [[unlikely]]
+					return {};
+
+				uint32_t trail = static_cast<uint16_t>(0xffff & *start++);
+				if (!(trail >= 0xdc00u && trail <= 0xdfffu)) [[unlikely]]
+					return {};
+
+				cp = (cp << 10) + trail + 0xFCA02400;
+			}
+
+			if (!append(cp, result))
+				return {};
+		}
+
+		if (result.empty())
+			return {};
+
+		return result;
 	}
 
 	inline std::string from_u8string(const std::string& s)
@@ -1184,6 +1289,7 @@ public:
 	}
 	inline logger___& operator<<(const std::string& v)
 	{
+#ifdef LOGGING_ENABLE_AUTO_UTF8
 		if (!logger_aux__::utf8_check_is_valid(v))
 		{
 			auto wres = logger_aux__::string_wide(v);
@@ -1194,6 +1300,7 @@ public:
 					return strcat_impl(*ret);
 			}
 		}
+#endif
 		return strcat_impl(v);
 	}
 	inline logger___& operator<<(const std::wstring& v)
@@ -1213,6 +1320,7 @@ public:
 #endif
 	inline logger___& operator<<(const std::string_view& v)
 	{
+#ifdef LOGGING_ENABLE_AUTO_UTF8
 		if (!logger_aux__::utf8_check_is_valid(v))
 		{
 			auto wres = logger_aux__::string_wide(v);
@@ -1223,11 +1331,13 @@ public:
 					return strcat_impl(*ret);
 			}
 		}
+#endif
 		return strcat_impl(v);
 	}
 	inline logger___& operator<<(const boost::string_view& v)
 	{
 		std::string_view sv{v.data(), v.length()};
+#ifdef LOGGING_ENABLE_AUTO_UTF8
 		if (!logger_aux__::utf8_check_is_valid(sv))
 		{
 			auto wres = logger_aux__::string_wide(sv);
@@ -1238,11 +1348,13 @@ public:
 					return strcat_impl(*ret);
 			}
 		}
+#endif
 		return strcat_impl(sv);
 	}
 	inline logger___& operator<<(const char* v)
 	{
 		std::string_view sv(v);
+#ifdef LOGGING_ENABLE_AUTO_UTF8
 		if (!logger_aux__::utf8_check_is_valid(sv))
 		{
 			auto wres = logger_aux__::string_wide(sv);
@@ -1253,6 +1365,7 @@ public:
 					return strcat_impl(*ret);
 			}
 		}
+#endif
 		return strcat_impl(sv);
 	}
 	inline logger___& operator<<(const wchar_t* v)
