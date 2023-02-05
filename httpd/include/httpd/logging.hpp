@@ -395,11 +395,11 @@ namespace logger_aux__ {
 			case 0:
 				if (codepoint <= 0xFFFF) [[likely]]
 				{
-					wstr.push_back(codepoint);
+					wstr.push_back(static_cast<wchar_t>(codepoint));
 					continue;
 				}
-				wstr.push_back(0xD7C0 + (codepoint >> 10));
-				wstr.push_back(0xDC00 + (codepoint & 0x3FF));
+				wstr.push_back(static_cast<wchar_t>(0xD7C0 + (codepoint >> 10)));
+				wstr.push_back(static_cast<wchar_t>(0xDC00 + (codepoint & 0x3FF)));
 				continue;
 			case 1:
 				return {};
