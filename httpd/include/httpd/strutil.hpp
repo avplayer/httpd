@@ -941,176 +941,148 @@ namespace strutil
 		return boost::posix_time::to_iso_extended_string(t);
 	}
 
-	static inline bool valid_utf(unsigned char* string, int length)
+	//////////////////////////////////////////////////////////////////////////
+
+	inline uint32_t decode(uint32_t* state, uint32_t* codep, uint32_t byte)
 	{
-		static const unsigned char utf8_table[] =
+		static constexpr uint8_t utf8d[] =
 		{
-		  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-		  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
-		  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
-		  3,3,3,3,3,3,3,3,4,4,4,4,5,5,5,5
+			0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 00..1f
+			0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 20..3f
+			0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 40..5f
+			0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 60..7f
+			1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9, // 80..9f
+			7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7, // a0..bf
+			8,8,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, // c0..df
+			0xa,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x4,0x3,0x3, // e0..ef
+			0xb,0x6,0x6,0x6,0x5,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8, // f0..ff
+			0x0,0x1,0x2,0x3,0x5,0x8,0x7,0x1,0x1,0x1,0x4,0x6,0x1,0x1,0x1,0x1, // s0..s0
+			1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,1, // s1..s2
+			1,2,1,1,1,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1,1, // s3..s4
+			1,2,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,3,1,3,1,1,1,1,1,1, // s5..s6
+			1,3,1,1,1,1,1,3,1,3,1,1,1,1,1,1,1,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // s7..s8
 		};
 
-		unsigned char* p;
+		uint32_t type = utf8d[byte];
 
-		if (length < 0)
+		*codep = (*state != 0) ?
+			(byte & 0x3fu) | (*codep << 6) :
+			(0xff >> type) & (byte);
+
+		*state = utf8d[256 + *state * 16 + type];
+		return *state;
+	}
+
+	inline bool utf8_check_is_valid(std::string_view str)
+	{
+		uint32_t codepoint;
+		uint32_t state = 0;
+		uint8_t* s = (uint8_t*)str.data();
+		uint8_t* end = s + str.size();
+
+		for (; s != end; ++s)
+			if (decode(&state, &codepoint, *s) == 1)
+				return false;
+
+		return state == 0;
+	}
+
+	inline std::optional<std::wstring> utf8_convert(std::string_view str)
+	{
+		uint8_t* start = (uint8_t*)str.data();
+		uint8_t* end = start + str.size();
+
+		std::wstring wstr;
+		uint32_t codepoint;
+		uint32_t state = 0;
+
+		for (; start != end; ++start)
 		{
-			for (p = string; *p != 0; p++);
-			length = (int)(p - string);
+			switch (decode(&state, &codepoint, *start))
+			{
+			case 0:
+				if (codepoint <= 0xFFFF) [[likely]]
+				{
+					wstr.push_back(codepoint);
+					continue;
+				}
+				wstr.push_back(0xD7C0 + (codepoint >> 10));
+				wstr.push_back(0xDC00 + (codepoint & 0x3FF));
+				continue;
+			case 1:
+				return {};
+			default:
+				;
+			}
 		}
 
-		for (p = string; length-- > 0; p++)
+		if (state != 0)
+			return {};
+
+		return wstr;
+	}
+
+	inline bool append(uint32_t cp, std::string& result)
+	{
+		if (!(cp <= 0x0010ffffu && !(cp >= 0xd800u && cp <= 0xdfffu)))
+			return false;
+
+		if (cp < 0x80)
 		{
-			unsigned char ab, c, d;
-
-			c = *p;
-			if (c < 128) continue;                /* ASCII character */
-
-			if (c < 0xc0)                         /* Isolated 10xx xxxx byte */
-				return false;
-
-			if (c >= 0xfe)                        /* Invalid 0xfe or 0xff bytes */
-				return false;
-
-			ab = utf8_table[c & 0x3f];            /* Number of additional bytes */
-			if (length < ab)
-				return false;
-			length -= ab;                         /* Length remaining */
-
-			/* Check top bits in the second byte */
-			if (((d = *(++p)) & 0xc0) != 0x80)
-				return false;
-
-			/* For each length, check that the remaining bytes start with the 0x80 bit
-			   set and not the 0x40 bit. Then check for an overlong sequence, and for the
-			   excluded range 0xd800 to 0xdfff. */
-			switch (ab)
-			{
-				/* 2-byte character. No further bytes to check for 0x80. Check first byte
-				   for for xx00 000x (overlong sequence). */
-			case 1:
-				if ((c & 0x3e) == 0)
-					return false;
-				break;
-			case 2:
-				if ((*(++p) & 0xc0) != 0x80)     /* Third byte */
-					return false;
-				if (c == 0xe0 && (d & 0x20) == 0)
-					return false;
-				if (c == 0xed && d >= 0xa0)
-					return false;
-				break;
-
-				/* 4-byte character. Check 3rd and 4th bytes for 0x80. Then check first 2
-				   bytes for for 1111 0000, xx00 xxxx (overlong sequence), then check for a
-				   character greater than 0x0010ffff (f4 8f bf bf) */
-			case 3:
-				if ((*(++p) & 0xc0) != 0x80)     /* Third byte */
-					return false;
-				if ((*(++p) & 0xc0) != 0x80)     /* Fourth byte */
-					return false;
-				if (c == 0xf0 && (d & 0x30) == 0)
-					return false;
-				if (c > 0xf4 || (c == 0xf4 && d > 0x8f))
-					return false;
-				break;
-
-				/* 5-byte and 6-byte characters are not allowed by RFC 3629, and will be
-				   rejected by the length test below. However, we do the appropriate tests
-				   here so that overlong sequences get diagnosed, and also in case there is
-				   ever an option for handling these larger code points. */
-
-				   /* 5-byte character. Check 3rd, 4th, and 5th bytes for 0x80. Then check for
-					  1111 1000, xx00 0xxx */
-			case 4:
-				if ((*(++p) & 0xc0) != 0x80)     /* Third byte */
-					return false;
-				if ((*(++p) & 0xc0) != 0x80)     /* Fourth byte */
-					return false;
-				if ((*(++p) & 0xc0) != 0x80)     /* Fifth byte */
-					return false;
-				if (c == 0xf8 && (d & 0x38) == 0)
-					return false;
-				break;
-
-				/* 6-byte character. Check 3rd-6th bytes for 0x80. Then check for
-				   1111 1100, xx00 00xx. */
-			case 5:
-				if ((*(++p) & 0xc0) != 0x80)     /* Third byte */
-					return false;
-				if ((*(++p) & 0xc0) != 0x80)     /* Fourth byte */
-					return false;
-				if ((*(++p) & 0xc0) != 0x80)     /* Fifth byte */
-					return false;
-				if ((*(++p) & 0xc0) != 0x80)     /* Sixth byte */
-					return false;
-				if (c == 0xfc && (d & 0x3c) == 0)
-					return false;
-				break;
-			}
-
-			/* Character is valid under RFC 2279, but 4-byte and 5-byte characters are
-			   excluded by RFC 3629. The pointer p is currently at the last byte of the
-			   character. */
-			if (ab > 3)
-				return false;
+			result.push_back(static_cast<uint8_t>(cp));
+		}
+		else if (cp < 0x800)
+		{
+			result.push_back(static_cast<uint8_t>((cp >> 6) | 0xc0));
+			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
+		}
+		else if (cp < 0x10000)
+		{
+			result.push_back(static_cast<uint8_t>((cp >> 12) | 0xe0));
+			result.push_back(static_cast<uint8_t>(((cp >> 6) & 0x3f) | 0x80));
+			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
+		}
+		else {
+			result.push_back(static_cast<uint8_t>((cp >> 18) | 0xf0));
+			result.push_back(static_cast<uint8_t>(((cp >> 12) & 0x3f) | 0x80));
+			result.push_back(static_cast<uint8_t>(((cp >> 6) & 0x3f) | 0x80));
+			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
 		}
 
 		return true;
 	}
 
-	static inline std::optional<std::u16string> utf8_utf16(std::u8string_view utf8)
+	inline std::optional<std::string> utf16_convert(std::wstring_view wstr)
 	{
-		const char8_t* first = &utf8[0];
-		const char8_t* last = first + utf8.size();
+		std::string result;
 
-		std::u16string result(utf8.size(), char16_t{ 0 });
-		char16_t* dest = &result[0];
-		char16_t* next = nullptr;
+		auto end = wstr.cend();
+		for (auto start = wstr.cbegin(); start != end;)
+		{
+			uint32_t cp = static_cast<uint16_t>(0xffff & *start++);
 
-		using codecvt_type = std::codecvt<char16_t, char8_t, std::mbstate_t>;
+			if (cp >= 0xdc00u && cp <= 0xdfffu) [[unlikely]]
+				return {};
 
-		codecvt_type* cvt = new codecvt_type;
+			if (cp >= 0xd800u && cp <= 0xdbffu)
+			{
+				if (start == end) [[unlikely]]
+					return {};
 
-		// manages reference to codecvt facet to free memory.
-		std::locale loc;
-		loc = std::locale(loc, cvt);
+				uint32_t trail = static_cast<uint16_t>(0xffff & *start++);
+				if (!(trail >= 0xdc00u && trail <= 0xdfffu)) [[unlikely]]
+					return {};
 
-		codecvt_type::state_type state{};
+				cp = (cp << 10) + trail + 0xFCA02400;
+			}
 
-		auto ret = cvt->in(
-			state, first, last, first, dest, dest + result.size(), next);
-		if (ret != codecvt_type::ok)
+			if (!append(cp, result))
+				return {};
+		}
+
+		if (result.empty())
 			return {};
 
-		result.resize(static_cast<size_t>(next - dest));
-		return result;
-	}
-
-	static inline std::optional<std::u8string> utf16_utf8(std::u16string_view utf16)
-	{
-		const char16_t* first = &utf16[0];
-		const char16_t* last = first + utf16.size();
-
-		std::u8string result((utf16.size() + 1) * 6, char{ 0 });
-		char8_t* dest = &result[0];
-		char8_t* next = nullptr;
-
-		using codecvt_type = std::codecvt<char16_t, char8_t, std::mbstate_t>;
-
-		codecvt_type* cvt = new codecvt_type;
-		// manages reference to codecvt facet to free memory.
-		std::locale loc;
-		loc = std::locale(loc, cvt);
-
-		codecvt_type::state_type state{};
-
-		auto ret = cvt->out(
-			state, first, last, first, dest, dest + result.size(), next);
-		if (ret != codecvt_type::ok)
-			return {};
-
-		result.resize(static_cast<size_t>(next - dest));
 		return result;
 	}
 
