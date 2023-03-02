@@ -254,6 +254,7 @@ include_directories(${OPENSSL_INCLUDE_DIR})
 ################################################################################
 
 set(BUILD_ASIO_BEAST ON)
+set(USE_BOOST_FILESYSTEM ON)
 
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_STATIC_RUNTIME ON)
@@ -319,6 +320,7 @@ link_libraries(
 		Boost::thread
 		Boost::date_time
 		Boost::program_options
+		Boost::filesystem
 
 		fmt
 		${ZLIB_LIBRARIES}
