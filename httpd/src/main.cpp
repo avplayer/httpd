@@ -944,7 +944,7 @@ static inline awaitable_void session(tcp_stream stream)
 			},
 			target);
 
-		auto current_path = (global_path /
+		auto current_path = fs::canonical(global_path /
 			boost::nowide::widen(target)).make_preferred();
 		auto realpath = current_path;
 
