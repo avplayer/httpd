@@ -34,6 +34,9 @@ using net::ip::tcp;
 #include <boost/program_options.hpp>
 namespace po = boost::program_options;
 
+#include <boost/filesystem.hpp>
+namespace fs = boost::filesystem;
+
 #include <boost/signals2.hpp>
 #include <boost/nowide/convert.hpp>
 #include <boost/url.hpp>
@@ -144,7 +147,7 @@ const static std::map<std::string, std::string> global_mimes =
 };
 
 bool global_pipe = false;
-std::string global_path;
+fs::path global_path;
 publish_subscribe global_publish_subscribe;
 bool global_quit = false;
 
@@ -448,7 +451,7 @@ static inline awaitable_void dir_session(
 	tcp_stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
-	std::filesystem::path dir)
+	fs::path dir)
 {
 	LOG_DBG << "Session: "
 		<< connection_id
@@ -457,20 +460,26 @@ static inline awaitable_void dir_session(
 
 	boost::system::error_code ec;
 
-	std::filesystem::directory_iterator end;
-	std::filesystem::directory_iterator it(dir, ec);
+	fs::directory_iterator end;
+	fs::directory_iterator it(dir, ec);
 
-	if (ec || dir.string().back() != '/')
+	if (ec ||
+		(dir.string().back() != '/') &&
+		dir.string().back() != '\\')
 	{
 		string_response res{
 			http::status::found,
 			req.version()
 		};
 
-		auto dirs = boost::nowide::narrow(dir.u16string());
-		dirs = boost::replace_first_copy(dirs, global_path, "") + "/";
+		auto dirs = dir.make_preferred().wstring();
+		auto root = global_path.make_preferred().wstring();
+		dirs = boost::replace_first_copy(dirs, root, L"") + L"/";
+		auto loc = boost::nowide::narrow(dirs);
+		boost::replace_all(loc, "\\", "/");
+		loc = strutil::encodeURI(loc);
 
-		res.set(http::field::location, dirs);
+		res.set(http::field::location, loc);
 		res.keep_alive(req.keep_alive());
 		res.prepare_payload();
 
@@ -498,10 +507,10 @@ static inline awaitable_void dir_session(
 	for (; it != end; it++)
 	{
 		const auto& item = it->path();
-		std::filesystem::path realpath = item;
+		fs::path realpath = item;
 		std::wstring time_string;
 
-		auto ftime = std::filesystem::last_write_time(item, ec);
+		auto ftime = fs::last_write_time(item, ec);
 		if (ec)
 		{
 #ifdef WIN32
@@ -510,23 +519,13 @@ static inline awaitable_void dir_session(
 				auto str = item.string();
 				boost::replace_all(str, "/", "\\");
 				realpath = "\\\\?\\" + str;
-				ftime = std::filesystem::last_write_time(realpath, ec);
+				ftime = fs::last_write_time(realpath, ec);
 			}
 #endif
 		}
 
-		const auto stime =
-			std::chrono::time_point_cast<
-			std::chrono::system_clock::duration>(
-				ftime -
-				std::filesystem::file_time_type::clock::now() +
-				std::chrono::system_clock::now());
-
-		const auto write_time =
-			std::chrono::system_clock::to_time_t(stime);
-
 		char tmbuf[64] = { 0 };
-		auto tm = std::localtime(&write_time);
+		auto tm = std::localtime(&ftime);
 
 		if (tm)
 		{
@@ -540,10 +539,10 @@ static inline awaitable_void dir_session(
 		time_string = boost::nowide::widen(tmbuf);
 		std::wstring wstr;
 
-		if (std::filesystem::is_directory(realpath, ec))
+		if (fs::is_directory(realpath, ec))
 		{
-			auto leaf = item.filename().u16string();
-			leaf = leaf + u"/";
+			auto leaf = item.filename().wstring();
+			leaf = leaf + L"/";
 			wstr.assign(leaf.begin(), leaf.end());
 
 			int width = 50 - ((int)leaf.size() + 1);
@@ -561,11 +560,11 @@ static inline awaitable_void dir_session(
 		}
 		else
 		{
-			auto leaf = item.filename().u16string();
+			auto leaf = item.filename().wstring();
 			wstr.assign(leaf.begin(), leaf.end());
 
 			auto sz = static_cast<float>(
-				std::filesystem::file_size(
+				fs::file_size(
 					realpath, ec));
 			if (ec)
 				sz = 0;
@@ -589,10 +588,8 @@ static inline awaitable_void dir_session(
 		}
 	}
 
-	auto dirs = boost::nowide::narrow(dir.u16string());
-	dirs = boost::replace_first_copy(dirs, global_path, "");
-	auto root_path =
-		boost::nowide::widen(dirs);
+	auto dirs = dir.wstring();
+	auto root_path = boost::replace_first_copy(dirs, global_path.wstring(), L"");
 
 	std::wstring head =
 		fmt::format(
@@ -646,15 +643,12 @@ static inline awaitable_void file_session(
 	tcp_stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
-	std::filesystem::path file)
+	fs::path file)
 {
 	LOG_DBG << "Session: "
 		<< connection_id
 		<< ", file: "
 		<< file;
-
-	boost::system::error_code ec;
-	size_t content_length = std::filesystem::file_size(file, ec);
 
 	if (req.method() != http::verb::get)
 	{
@@ -675,7 +669,7 @@ static inline awaitable_void file_session(
 	filename = L"\\\\?\\" + filename;
 	file = filename;
 #endif
-	if (!std::filesystem::exists(file))
+	if (!fs::exists(file))
 	{
 		co_await error_session(
 			stream,
@@ -686,6 +680,9 @@ static inline awaitable_void file_session(
 
 		co_return;
 	}
+
+	boost::system::error_code ec;
+	size_t content_length = fs::file_size(file, ec);
 
 	std::fstream file_stream(
 		file.string(),
@@ -910,7 +907,7 @@ static inline awaitable_void session(tcp_stream stream)
 			co_return;
 		}
 
-		if (std::filesystem::is_regular_file(global_path))
+		if (fs::is_regular_file(global_path))
 		{
 			co_await file_session(
 				stream,
@@ -923,7 +920,7 @@ static inline awaitable_void session(tcp_stream stream)
 			co_return;
 		}
 
-		if (!std::filesystem::is_directory(global_path))
+		if (!fs::is_directory(global_path))
 		{
 			co_await error_session(
 				stream,
@@ -947,11 +944,20 @@ static inline awaitable_void session(tcp_stream stream)
 			},
 			target);
 
-		auto current_path = path_cat(
-			boost::nowide::widen(global_path),
-			boost::nowide::widen(target));
+		auto current_path = (global_path /
+			boost::nowide::widen(target)).make_preferred();
+		auto realpath = current_path;
 
-		if (std::filesystem::is_directory(current_path))
+#ifdef WIN32
+		if (current_path.size() > MAX_PATH)
+		{
+			auto str = current_path.wstring();
+			boost::replace_all(str, L"/", L"\\");
+			realpath = L"\\\\?\\" + str;
+		}
+#endif
+
+		if (fs::is_directory(realpath))
 		{
 			co_await dir_session(
 				stream,
@@ -964,7 +970,7 @@ static inline awaitable_void session(tcp_stream stream)
 			co_return;
 		}
 
-		if (std::filesystem::is_regular_file(current_path))
+		if (fs::is_regular_file(realpath))
 		{
 			co_await file_session(
 				stream,
@@ -977,7 +983,7 @@ static inline awaitable_void session(tcp_stream stream)
 			co_return;
 		}
 
-		if (!std::filesystem::exists(current_path))
+		if (!fs::exists(realpath))
 		{
 			co_await error_session(
 				stream,
@@ -1046,13 +1052,14 @@ int main(int argc, char** argv)
 	platform_init();
 
 	std::string httpd_listen;
+	std::string httpd_doc;
 
 	// 解析命令行.
 	po::options_description desc("Options");
 	desc.add_options()
 		("help,h", "Help message.")
 		("listen", po::value<std::string>(&httpd_listen)->default_value("[::0]:80")->value_name("ip:port"), "Httpd tcp listen.")
-		("file", po::value<std::string>(&global_path)->value_name("file/pipe"), "Filename or pipe.")
+		("file", po::value<std::string>(&httpd_doc)->value_name("file/pipe"), "Filename or pipe.")
 		;
 
 	po::variables_map vm;
@@ -1108,7 +1115,7 @@ int main(int argc, char** argv)
 	}
 
 	// 如果是pipe, 则直接启动文件读.
-	if (global_path.empty() || global_path == "-")
+	if (httpd_doc.empty() || httpd_doc == "-")
 	{
 		global_pipe = true;
 
@@ -1116,6 +1123,10 @@ int main(int argc, char** argv)
 			ctx.get_executor(),
 			read_from_stdin(),
 			net::detached);
+	}
+	else
+	{
+		global_path = fs::path(httpd_doc).make_preferred();
 	}
 
 	ctx.run();
