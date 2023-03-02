@@ -951,6 +951,20 @@ static inline awaitable_void session(tcp_stream stream)
 			fs::is_directory(current_path))
 			current_path = (current_path / "/").make_preferred();
 
+		if (!current_path.wstring().starts_with(global_path.wstring()))
+		{
+			co_await error_session(
+				stream,
+				req,
+				connection_id,
+				http::status::not_found,
+				"Not Found");
+
+			if (keep_alive)
+				continue;
+			co_return;
+		}
+
 		auto realpath = current_path;
 
 #ifdef WIN32
