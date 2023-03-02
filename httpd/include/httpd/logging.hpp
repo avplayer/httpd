@@ -58,6 +58,18 @@
 # endif
 #endif
 
+#ifndef LOGGING_DISABLE_BOOST_FILESYSTEM
+# if defined(__has_include)
+#  if __has_include(<boost/filesystem.hpp>)
+#   include <boost/filesystem.hpp>
+#  else
+#   define LOGGING_DISABLE_BOOST_FILESYSTEM
+#  endif
+# else
+#  include <boost/filesystem.hpp>
+# endif
+#endif
+
 #ifndef LOGGING_DISABLE_BOOST_STRING_VIEW
 # if defined(__has_include)
 #  if __has_include(<boost/utility/string_view.hpp>)
@@ -1576,6 +1588,17 @@ public:
 				logger_aux__::from_u8string(u8"日"));
 #endif
 		return *this;
+	}
+#endif
+#ifndef LOGGING_DISABLE_BOOST_FILESYSTEM
+	inline logger___& operator<<(const boost::filesystem::path& p) noexcept
+	{
+		if (!global_logging___)
+			return *this;
+		auto ret = logger_aux__::utf16_utf8(p.wstring());
+		if (ret)
+			return strcat_impl(*ret);
+		return strcat_impl(p.string());
 	}
 #endif
 #ifndef LOGGING_DISABLE_BOOST_POSIX_TIME
