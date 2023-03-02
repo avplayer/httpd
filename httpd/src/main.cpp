@@ -946,6 +946,11 @@ static inline awaitable_void session(tcp_stream stream)
 
 		auto current_path = fs::canonical(global_path /
 			boost::nowide::widen(target)).make_preferred();
+
+		if ((target.back() == '/' || target.back() == '\\') &&
+			fs::is_directory(current_path))
+			current_path = (current_path / "/").make_preferred();
+
 		auto realpath = current_path;
 
 #ifdef WIN32
