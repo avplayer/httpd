@@ -1056,7 +1056,7 @@ static inline awaitable_void listen(tcp_acceptor& acceptor)
 		auto ex(client.get_executor());
 		tcp_stream stream(std::move(client));
 
-		co_spawn(
+		net::co_spawn(
 			ex,
 			session(std::move(stream)),
 			net::detached);
