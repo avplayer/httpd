@@ -188,40 +188,6 @@ static inline ranges get_ranges(std::string range)
 	return result;
 }
 
-static inline std::filesystem::path path_cat(
-	const std::wstring& doc, const std::wstring& target)
-{
-	size_t start_pos = 0;
-	for (auto& c : target)
-	{
-		if (!(c == L'/' || c == '\\'))
-			break;
-
-		start_pos++;
-	}
-
-	std::wstring_view sv;
-	std::wstring slash = L"/";
-
-	if (start_pos < target.size())
-		sv = std::wstring_view(target.c_str() + start_pos);
-
-#ifdef WIN32
-	slash = L"\\";
-	if (doc.back() == L'/' ||
-		doc.back() == L'\\')
-		slash = L"";
-
-	return std::filesystem::path(doc + slash + std::wstring(sv));
-#else
-	if (doc.back() == L'/')
-		slash = L"";
-
-	return std::filesystem::path(
-		boost::nowide::narrow(doc + slash + std::wstring(sv)));
-#endif // WIN32
-};
-
 awaitable_void read_from_stdin()
 {
 	auto ex = co_await net::this_coro::executor;
