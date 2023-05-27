@@ -153,7 +153,7 @@ bool global_quit = false;
 
 using ranges = std::vector<std::pair<int64_t, int64_t>>;
 
-static inline ranges get_ranges(std::string range)
+inline ranges get_ranges(std::string range)
 {
 	range = strutil::remove_spaces(range);
 	boost::ireplace_first(range, "bytes=", "");
@@ -270,7 +270,7 @@ awaitable_void read_from_stdin()
 	co_return;
 }
 
-static inline awaitable_void error_session(
+inline awaitable_void error_session(
 	tcp_stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
@@ -306,7 +306,7 @@ static inline awaitable_void error_session(
 	co_return;
 }
 
-static inline awaitable_void pipe_session(
+inline awaitable_void pipe_session(
 	tcp_stream& stream, dynamic_request& req, int64_t connection_id)
 {
 	boost::system::error_code ec;
@@ -413,7 +413,7 @@ static inline awaitable_void pipe_session(
 	co_return;
 }
 
-static inline awaitable_void dir_session(
+inline awaitable_void dir_session(
 	tcp_stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
@@ -605,7 +605,7 @@ static inline awaitable_void dir_session(
 	co_return;
 }
 
-static inline awaitable_void file_session(
+inline awaitable_void file_session(
 	tcp_stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
@@ -787,7 +787,7 @@ static inline awaitable_void file_session(
 	co_return;
 }
 
-static inline awaitable_void session(tcp_stream stream)
+inline awaitable_void session(tcp_stream stream)
 {
 	static int64_t static_connection_id = 0;
 	int64_t connection_id = static_connection_id++;
@@ -997,7 +997,7 @@ static inline awaitable_void session(tcp_stream stream)
 	co_return;
 }
 
-static inline awaitable_void listen(tcp_acceptor& acceptor)
+inline awaitable_void listen(tcp_acceptor& acceptor)
 {
 	for (;;)
 	{
