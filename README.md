@@ -1,6 +1,6 @@
 # httpd [![actions workflow](https://github.com/avplayer/httpd/actions/workflows/Build.yml/badge.svg)](https://github.com/avplayer/httpd/actions)
 
-##### 一个基于 c++20 实现的极高性能 http 服务，可用于静态文件或标准输入设备的 http 服务器。
+#### 一个基于 c++20 实现的极高性能 http 服务，可用于静态文件或标准输入设备的 http 服务器。
 
 <br>
 <br>
@@ -37,6 +37,8 @@ httpd 主要用于类似以下几种场景：
 $ tail -f x.log | httpd -l 0.0.0.0:8080   # 命令输出内容通过管道输出为httpd访问.
 
 $ journalctl -f | httpd -l 0.0.0.0:8080   # 命令执行输出到管道通过httpd访问.
+
+$ ffmpeg -re -i input.mp4 -c copy -f mpegts - | httpd -l 0.0.0.0:8080   # 将输入的 input.mp4 发布为 http mpegts 流.
 
 $ httpd -l 0.0.0.0:8080 -f test.mp4   # 指定单个文件用于http访问.
 
