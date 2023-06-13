@@ -86,6 +86,30 @@ using awaitable_void = net::awaitable<void, executor_type>;
 
 //////////////////////////////////////////////////////////////////////////
 
+fs::path addLongPathAware(const fs::path& p)
+{
+	auto w = p.wstring();
+#ifdef _WIN32
+	boost::replace_all(w, L"/", L"\\");
+	if (w.size() < 4 || !w.starts_with(L"\\\\?\\"))
+		w = L"\\\\?\\" + w;
+#endif
+	return fs::path{ w };
+}
+
+fs::path removeLongPathAware(const fs::path& p)
+{
+	auto w = p.wstring();
+#ifdef _WIN32
+	boost::replace_all(w, L"/", L"\\");
+	if (w.size() > 4 && w.starts_with(L"\\\\?\\"))
+		w.erase(0, 4);
+#endif
+	return fs::path{ w };
+}
+
+//////////////////////////////////////////////////////////////////////////
+
 
 const auto global_buffer_size = 5 * 1024 * 1024;
 
@@ -473,21 +497,12 @@ inline awaitable_void dir_session(
 	for (; it != end; it++)
 	{
 		const auto& item = it->path();
-		fs::path realpath = item;
+		fs::path realpath = addLongPathAware(item);
 		std::wstring time_string;
 
-		auto ftime = fs::last_write_time(item, ec);
+		auto ftime = fs::last_write_time(realpath, ec);
 		if (ec)
 		{
-#ifdef WIN32
-			if (item.string().size() > MAX_PATH)
-			{
-				auto str = item.string();
-				boost::replace_all(str, "/", "\\");
-				realpath = "\\\\?\\" + str;
-				ftime = fs::last_write_time(realpath, ec);
-			}
-#endif
 		}
 
 		char tmbuf[64] = { 0 };
