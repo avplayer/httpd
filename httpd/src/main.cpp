@@ -34,8 +34,14 @@ using net::ip::tcp;
 #include <boost/program_options.hpp>
 namespace po = boost::program_options;
 
+#ifdef USE_STD_FILESYSTEM
+#include <filesystem>
+namespace fs = std::filesystem;
+#else
 #include <boost/filesystem.hpp>
 namespace fs = boost::filesystem;
+#endif
+
 
 #include <boost/signals2.hpp>
 #include <boost/nowide/convert.hpp>
@@ -453,46 +459,39 @@ inline awaitable_void dir_session(
 	fs::directory_iterator end;
 	fs::directory_iterator it(dir, ec);
 
-	if (ec ||
-		(dir.string().back() != '/') &&
-		dir.string().back() != '\\')
+	if (ec)
 	{
-		string_response res{
-			http::status::found,
-			req.version()
-		};
-
-		auto dirs = dir.make_preferred().wstring();
-		auto root = global_path.make_preferred().wstring();
-		dirs = boost::replace_first_copy(dirs, root, L"") + L"/";
-		auto loc = boost::nowide::narrow(dirs);
-		boost::replace_all(loc, "\\", "/");
-		loc = strutil::encodeURI(loc);
-
-		res.set(http::field::location, loc);
-		res.keep_alive(req.keep_alive());
-		res.prepare_payload();
-
-		http::serializer<
-			false,
-			string_body,
-			http::fields> sr(res);
-
-		co_await http::async_write(
+		co_await error_session(
 			stream,
-			sr,
-			ioc_awaitable[ec]);
-
-		if (ec)
-			LOG_ERR << "Session: "
-			<< connection_id
-			<< ", err: "
-			<< ec.message();
+			req,
+			connection_id,
+			http::status::internal_server_error,
+			"internal server error");
 
 		co_return;
 	}
 
 	std::vector<std::wstring> path_list;
+
+	auto loc_time = [](auto t) -> struct tm*
+	{
+		using time_type = std::decay_t<decltype(t)>;
+		if constexpr (std::is_same_v<time_type, std::filesystem::file_time_type>)
+		{
+			const auto systime = std::chrono::clock_cast<std::chrono::system_clock>(t);
+			const auto time = std::chrono::system_clock::to_time_t(systime);
+
+			return std::localtime(&time);
+		}
+		else if constexpr (std::is_same_v<time_type, std::time_t>)
+		{
+			return std::localtime(&t);
+		}
+		else
+		{
+			static_assert(std::is_same_v<int, bool>, "time type required!");
+		}
+	};
 
 	for (; it != end; it++)
 	{
@@ -505,8 +504,9 @@ inline awaitable_void dir_session(
 		{
 		}
 
+
 		char tmbuf[64] = { 0 };
-		auto tm = std::localtime(&ftime);
+		auto tm = loc_time(ftime);
 
 		if (tm)
 		{
@@ -924,13 +924,12 @@ inline awaitable_void session(tcp_stream stream)
 				req.target().size()
 			},
 			target);
+		if (!target.empty() && target[0] == '/')
+			target.erase(0, 1);
 
+		// 构造完整路径以及根据请求的目标构造路径.
 		auto current_path = fs::canonical(global_path /
 			boost::nowide::widen(target)).make_preferred();
-
-		if ((target.back() == '/' || target.back() == '\\') &&
-			fs::is_directory(current_path))
-			current_path = (current_path / "/").make_preferred();
 
 		if (!current_path.wstring().starts_with(global_path.wstring()))
 		{
@@ -946,16 +945,7 @@ inline awaitable_void session(tcp_stream stream)
 			co_return;
 		}
 
-		auto realpath = current_path;
-
-#ifdef WIN32
-		if (current_path.size() > MAX_PATH)
-		{
-			auto str = current_path.wstring();
-			boost::replace_all(str, L"/", L"\\");
-			realpath = L"\\\\?\\" + str;
-		}
-#endif
+		auto realpath = addLongPathAware(current_path);
 
 		if (fs::is_directory(realpath))
 		{
@@ -1126,7 +1116,7 @@ int main(int argc, char** argv)
 	}
 	else
 	{
-		global_path = fs::path(httpd_doc).make_preferred();
+		global_path = fs::canonical(fs::path(httpd_doc).make_preferred());
 	}
 
 	ctx.run();
