@@ -478,9 +478,12 @@ inline awaitable_void dir_session(
 		using time_type = std::decay_t<decltype(t)>;
 		if constexpr (std::is_same_v<time_type, std::filesystem::file_time_type>)
 		{
-			const auto systime = std::chrono::clock_cast<std::chrono::system_clock>(t);
-			const auto time = std::chrono::system_clock::to_time_t(systime);
-
+			auto sctp = std::chrono::time_point_cast<
+				std::chrono::system_clock::duration>(
+					t -
+					std::chrono::clock::now() +
+					std::chrono::system_clock::now());
+			auto time = system_clock::to_time_t(sctp);
 			return std::localtime(&time);
 		}
 		else if constexpr (std::is_same_v<time_type, std::time_t>)
