@@ -307,11 +307,13 @@ endif()
 ################################################################################
 
 add_subdirectory(third_party/fmt)
+set(FMT_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fmt/include)
 
 ################################################################################
 
 include_directories(third_party
 	${ZLIB_INCLUDE_DIRS}
+	${FMT_INCLUDE_DIRS}
 )
 
 ################################################################################
