@@ -160,6 +160,7 @@ const static std::map<std::string, std::string> global_mimes =
 	{ ".wav", "audio/x-wav" },
 	{ ".ogg", "video/ogg" },
 	{ ".mp4", "video/mp4" },
+	{ ".m4a", "audio/mp4" },
 	{ ".flv", "video/x-flv" },
 	{ ".f4v", "video/x-f4v" },
 	{ ".ts", "video/MP2T" },
