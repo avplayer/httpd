@@ -1075,7 +1075,7 @@ int main(int argc, char** argv)
 	desc.add_options()
 		("help,h", "Help message.")
 		("listen", po::value<std::string>(&httpd_listen)->default_value("[::0]:80")->value_name("ip:port"), "Httpd tcp listen.")
-		("file", po::value<std::string>(&httpd_doc)->value_name("file/pipe"), "Filename or pipe.")
+		("file", po::value<std::string>(&httpd_doc)->value_name("file/dir/pipe"), "Filename or directory or pipe.")
 		;
 
 	po::variables_map vm;
