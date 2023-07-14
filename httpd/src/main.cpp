@@ -779,7 +779,8 @@ inline awaitable_void file_session(
 		co_return;
 	}
 
-	char bufs[global_buffer_size];
+	std::vector<char> buffer(global_buffer_size);
+	char* bufs = buffer.data();
 	std::streamsize total = 0;
 
 	do
