@@ -140,15 +140,15 @@ const static std::map<std::string, std::string> global_mimes =
 {
 	{ ".html", "text/html; charset=utf-8" },
 	{ ".htm", "text/html; charset=utf-8" },
-	{ ".js", "application/javascript" },
-	{ ".h", "text/javascript" },
-	{ ".hpp", "text/javascript" },
-	{ ".cpp", "text/javascript" },
-	{ ".cxx", "text/javascript" },
-	{ ".cc", "text/javascript" },
-	{ ".c", "text/javascript" },
-	{ ".json", "application/json" },
-	{ ".css", "text/css" },
+	{ ".js", "application/javascript; charset=utf-8" },
+	{ ".h", "text/javascript; charset=utf-8" },
+	{ ".hpp", "text/javascript; charset=utf-8" },
+	{ ".cpp", "text/javascript; charset=utf-8" },
+	{ ".cxx", "text/javascript; charset=utf-8" },
+	{ ".cc", "text/javascript; charset=utf-8" },
+	{ ".c", "text/javascript; charset=utf-8" },
+	{ ".json", "application/json; charset=utf-8" },
+	{ ".css", "text/css; charset=utf-8" },
 	{ ".woff", "application/x-font-woff" },
 	{ ".pdf", "application/pdf" },
 	{ ".png", "image/png" },
@@ -173,7 +173,7 @@ const static std::map<std::string, std::string> global_mimes =
 	{ ".ppt", "application/vnd.ms-powerpoint" },
 	{ ".zip", "application/zip" },
 	{ ".xz", "application/x-xz" },
-	{ ".xml", "application/xml" },
+	{ ".xml", "application/xml; charset=utf-8" },
 	{ ".webm", "video/webm" }
 };
 
@@ -726,7 +726,7 @@ inline awaitable_void file_session(
 	if (global_mimes.count(ext))
 		res.set(http::field::content_type, global_mimes.at(ext));
 	else
-		res.set(http::field::content_type, "text/plain");
+		res.set(http::field::content_type, "text/plain; charset=utf-8");
 
 	if (st == http::status::ok)
 		res.set(http::field::accept_ranges, "bytes");
