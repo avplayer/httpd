@@ -462,6 +462,13 @@ inline awaitable_void dir_session(
 
 	if (ec)
 	{
+		LOG_WARN << "Session: "
+			<< connection_id
+			<< ", path: "
+			<< dir
+			<< ", err: "
+			<< ec.message();
+
 		co_await error_session(
 			stream,
 			req,
@@ -493,7 +500,7 @@ inline awaitable_void dir_session(
 		}
 		else
 		{
-			static_assert(std::is_same_v<int, bool>, "time type required!");
+			static_assert(std::is_same_v<time_type, double>, "time type required!");
 		}
 	};
 
@@ -506,8 +513,22 @@ inline awaitable_void dir_session(
 		auto ftime = fs::last_write_time(realpath, ec);
 		if (ec)
 		{
-		}
+			LOG_WARN << "Session: "
+				<< connection_id
+				<< ", realpath: "
+				<< realpath
+				<< ", err: "
+				<< ec.message();
 
+			co_await error_session(
+				stream,
+				req,
+				connection_id,
+				http::status::internal_server_error,
+				"internal server error");
+
+			co_return;
+		}
 
 		char tmbuf[64] = { 0 };
 		auto tm = loc_time(ftime);
