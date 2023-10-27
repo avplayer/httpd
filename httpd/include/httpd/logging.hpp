@@ -1,11 +1,16 @@
 ﻿//
-// Copyright (C) 2019 Jack.
+// logging.hpp
+// ~~~~~~~~~~~
 //
-// Author: jack
-// Email:  jack.wgm at gmail dot com
+// Copyright (c) 2023 Jack (jack dot wgm at gmail dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
 
-#pragma once
+#ifndef INCLUDE__2016_10_14__LOGGING_HPP
+#define INCLUDE__2016_10_14__LOGGING_HPP
+
 #include <version>
 #include <codecvt>
 #include <clocale>
@@ -167,10 +172,10 @@ namespace std {
 //   int64_t time, const int& level, const std::string& message);
 //
 
-struct logger_tag
-{};
 
 namespace util {
+
+	namespace fs = std::filesystem;
 
 #ifndef LOGGING_DISABLE_BOOST_ASIO_ENDPOINT
 	namespace net = boost::asio;
@@ -189,6 +194,18 @@ namespace util {
 
 namespace logging_compress__ {
 
+	struct closefile_deleter {
+		void operator()(FILE* fp) const {
+			fclose(fp);
+		}
+	};
+
+	struct closegz_deleter {
+		void operator()(gzFile gz) const {
+			gzclose(gz);
+		}
+	};
+
 	const inline std::string LOGGING_GZ_SUFFIX = ".gz";
 	const inline size_t LOGGING_GZ_BUFLEN = 65536;
 
@@ -205,15 +222,15 @@ namespace logging_compress__ {
 		gzFile out = gzopen(outfile.c_str(), "wb6f");
 		if (!out)
 			return false;
-		typedef typename std::remove_pointer<gzFile>::type gzFileType;
-		std::unique_ptr<gzFileType,
-			decltype(&gzclose)> gz_closer(out, &gzclose);
+
+		using gzFileType = typename std::remove_pointer<gzFile>::type;
+		std::unique_ptr<gzFileType, closegz_deleter> gz_closer(out);
 
 		FILE* in = fopen(infile.c_str(), "rb");
 		if (!in)
 			return false;
-		std::unique_ptr<FILE, decltype(&fclose)> FILE_closer(in, &fclose);
 
+		std::unique_ptr<FILE, closefile_deleter> FILE_closer(in);
 		std::unique_ptr<char[]> bufs(new char[LOGGING_GZ_BUFLEN]);
 		char* buf = bufs.get();
 		int len;
@@ -696,8 +713,8 @@ public:
 			return;
 
 		std::error_code ignore_ec;
-		if (!std::filesystem::exists(m_log_path, ignore_ec))
-			std::filesystem::create_directories(
+		if (!fs::exists(m_log_path, ignore_ec))
+			fs::create_directories(
 				m_log_path.parent_path(), ignore_ec);
 	}
 	~auto_logger_file__()
@@ -715,8 +732,8 @@ public:
 			return;
 
 		std::error_code ignore_ec;
-		if (!std::filesystem::exists(m_log_path, ignore_ec))
-			std::filesystem::create_directories(
+		if (!fs::exists(m_log_path, ignore_ec))
+			fs::create_directories(
 				m_log_path.parent_path(), ignore_ec);
 	}
 
@@ -758,8 +775,8 @@ public:
 			m_ofstream->close();
 			m_ofstream.reset();
 
-			auto logpath = std::filesystem::path(m_log_path.parent_path());
-			std::filesystem::path filename;
+			auto logpath = fs::path(m_log_path.parent_path());
+			fs::path filename;
 
 			if constexpr (LOG_MAXFILE_SIZE <= 0) {
 				auto logfile = std::format("{:04d}{:02d}{:02d}-{:02d}.log",
@@ -781,10 +798,10 @@ public:
 			m_last_time = time;
 
 			std::error_code ec;
-			if (!std::filesystem::copy_file(m_log_path, filename, ec))
+			if (!fs::copy_file(m_log_path, filename, ec))
 				break;
 
-			std::filesystem::resize_file(m_log_path, 0, ec);
+			fs::resize_file(m_log_path, 0, ec);
 			m_log_size = 0;
 
 #ifdef LOGGING_ENABLE_COMPRESS_LOGS
@@ -797,7 +814,7 @@ public:
 					if (!logging_compress__::do_compress_gz(fn))
 					{
 						auto file = fn + logging_compress__::LOGGING_GZ_SUFFIX;
-						std::filesystem::remove(file, ignore_ec);
+						fs::remove(file, ignore_ec);
 						if (ignore_ec)
 							std::cerr
 								<< "delete log failed: " << file
@@ -806,7 +823,7 @@ public:
 						return;
 					}
 
-					std::filesystem::remove(fn, ignore_ec);
+					fs::remove(fn, ignore_ec);
 				});
 			th.detach();
 #endif
@@ -829,7 +846,7 @@ public:
 	}
 
 private:
-	std::filesystem::path m_log_path{"./logs"};
+	fs::path m_log_path{"./logs"};
 	ofstream_ptr m_ofstream;
 	int64_t m_last_time{ -1 };
 	std::size_t m_log_size{ 0 };
@@ -972,29 +989,37 @@ inline const std::string& logger_level_string__(const int& level) noexcept
 	return _LOGGER_DEBUG_STR__;
 }
 
-struct access {
-	template <class... T>
-	static bool logger_writer(logger_tag, T...) noexcept
+struct logger_tag
+{};
+
+namespace access
+{
+	namespace detail
 	{
-		return false;
+		template <typename... T>
+		bool tag_invoke(T...) noexcept
+		{
+			return false;
+		}
+
+		struct tag_invoke_t
+		{
+			template <typename Tag>
+			bool operator()(Tag tag,
+				int64_t time,
+				const int& level,
+				const std::string& message) noexcept
+			{
+				return tag_invoke(
+					std::forward<Tag>(tag),
+					time,
+					level,
+					message);
+			}
+		};
 	}
-};
 
-template <class T>
-inline bool logger_writer(T tag
-	, int64_t time, const int& level, const std::string& message) noexcept
-{
-	return access::logger_writer(tag
-		, time, level, message
-	);
-}
-
-template<class T>
-inline bool logger_writer_adl(T tag
-	, int64_t time, const int& level, const std::string& message) noexcept
-{
-	return logger_writer(std::forward<T>(tag),
-		time, level, message);
+	inline detail::tag_invoke_t tag_invoke{};
 }
 
 inline void logger_writer__(int64_t time, const int& level,
@@ -1011,7 +1036,7 @@ inline void logger_writer__(int64_t time, const int& level,
 	std::string whole = prefix + tmp;
 
 	// User log hook.
-	if (logger_writer_adl(logger_tag(), time, level, message))
+	if (access::tag_invoke(logger_tag(), time, level, message))
 		return;
 
 #ifndef DISABLE_WRITE_LOGGING
@@ -1026,7 +1051,7 @@ inline void logger_writer__(int64_t time, const int& level,
 #if defined(_WIN32) || defined(WIN32)
 static LONG WINAPI unexpectedExceptionHandling(EXCEPTION_POINTERS* info);
 #endif
-void signalHandler(int);
+void signal_handler(int);
 
 namespace logger_aux__ {
 	using namespace std::chrono_literals;
@@ -1055,11 +1080,11 @@ namespace logger_aux__ {
 			m_unexpected_exception_handler =
 				SetUnhandledExceptionFilter(unexpectedExceptionHandling);
 #endif
-			signal(SIGTERM, signalHandler);
-			signal(SIGABRT, signalHandler);
-			signal(SIGFPE, signalHandler);
-			signal(SIGSEGV, signalHandler);
-			signal(SIGILL, signalHandler);
+			signal(SIGTERM, signal_handler);
+			signal(SIGABRT, signal_handler);
+			signal(SIGFPE, signal_handler);
+			signal(SIGSEGV, signal_handler);
+			signal(SIGILL, signal_handler);
 		}
 		~async_logger___()
 		{
@@ -1159,7 +1184,7 @@ static LONG WINAPI unexpectedExceptionHandling(EXCEPTION_POINTERS* e)
 }
 #endif
 
-inline void signalHandler(int)
+inline void signal_handler(int)
 {
 	global_logger_obj___.reset();
 }
@@ -1590,6 +1615,15 @@ public:
 		return *this;
 	}
 #endif
+	inline logger___& operator<<(const fs::path& p) noexcept
+	{
+		if (!global_logging___)
+			return *this;
+		auto ret = logger_aux__::utf16_utf8(p.wstring());
+		if (ret)
+			return strcat_impl(*ret);
+		return strcat_impl(p.string());
+	}
 #ifndef LOGGING_DISABLE_BOOST_FILESYSTEM
 	inline logger___& operator<<(const boost::filesystem::path& p) noexcept
 	{
@@ -1823,3 +1857,4 @@ public:
 
 #endif
 
+#endif // INCLUDE__2016_10_14__LOGGING_HPP
