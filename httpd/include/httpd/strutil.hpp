@@ -13,17 +13,21 @@
  ******************************************************************************
 */
 
-#pragma once
+#ifndef INCLUDE__2023_10_18__STRUTIL_HPP
+#define INCLUDE__2023_10_18__STRUTIL_HPP
+
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
 #include <map>
 #include <optional>
-#include <iterator>
+
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 //! The strutil namespace
 namespace strutil
@@ -755,141 +759,10 @@ namespace strutil
 		return true;
 	}
 
-	namespace detail {
-		inline bool isdigit(const char c) noexcept
-		{
-			return c >= '0' && c <= '9';
-		}
-
-		inline bool isalpha(const char c) noexcept
-		{
-			return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
-		}
-
-		inline bool uri_reserved(const char c) noexcept
-		{
-			if (c == ';' || c == '/' || c == '?' || c == ':' ||
-				c == '@' || c == '&' || c == '=' || c == '+' ||
-				c == '$' || c == ',')
-				return true;
-			return false;
-		}
-
-		inline bool uri_mark(const char c) noexcept
-		{
-			if (c == '-' || c == '_' || c == '.' || c == '!' ||
-				c == '~' || c == '*' || c == '\'' || c == '(' ||
-				c == ')')
-				return true;
-			return false;
-		}
-
-		inline std::string_view to_hex(unsigned char c) noexcept
-		{
-			static const char* hexstring[] = {
-				"00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "0a", "0b", "0c", "0d", "0e", "0f",
-				"10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "1a", "1b", "1c", "1d", "1e", "1f",
-				"20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "2a", "2b", "2c", "2d", "2e", "2f",
-				"30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "3a", "3b", "3c", "3d", "3e", "3f",
-				"40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "4a", "4b", "4c", "4d", "4e", "4f",
-				"50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "5a", "5b", "5c", "5d", "5e", "5f",
-				"60", "61", "62", "63", "64", "65", "66", "67", "68", "69", "6a", "6b", "6c", "6d", "6e", "6f",
-				"70", "71", "72", "73", "74", "75", "76", "77", "78", "79", "7a", "7b", "7c", "7d", "7e", "7f",
-				"80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "8a", "8b", "8c", "8d", "8e", "8f",
-				"90", "91", "92", "93", "94", "95", "96", "97", "98", "99", "9a", "9b", "9c", "9d", "9e", "9f",
-				"a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "aa", "ab", "ac", "ad", "ae", "af",
-				"b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "be", "bf",
-				"c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "ca", "cb", "cc", "cd", "ce", "cf",
-				"d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "da", "db", "dc", "dd", "de", "df",
-				"e0", "e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9", "ea", "eb", "ec", "ed", "ee", "ef",
-				"f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "fa", "fb", "fc", "fd", "fe", "ff"
-			};
-
-			return std::string_view(hexstring[c]);
-		}
-	}
-
-
-	static inline std::string encodeURI(std::string_view str) noexcept
-	{
-		using namespace detail;
-
-		std::string result;
-
-		for (const auto& c : str)
-		{
-			if (isalpha(c) || isdigit(c) || uri_mark(c) || uri_reserved(c))
-			{
-				result += c;
-			}
-			else
-			{
-				result += '%';
-				result += std::string(to_hex((unsigned char)c));
-			}
-		}
-
-		return result;
-	}
-
-	static inline std::string decodeURI(std::string_view str)
-	{
-		using namespace detail;
-
-		std::string result;
-
-		auto start = str.cbegin();
-		auto end = str.cend();
-
-		for (; start != end; ++start)
-		{
-			char c = *start;
-			if (c == '%')
-			{
-				auto first = std::next(start);
-				if (first == end)
-					throw std::invalid_argument("URI malformed");
-
-				auto second = std::next(first);
-				if (second == end)
-					throw std::invalid_argument("URI malformed");
-
-				if (isdigit(*first))
-					c = *first - '0';
-				else if (*first >= 'A' && *first <= 'F')
-					c = *first - 'A' + 10;
-				else if (*first >= 'a' && *first <= 'f')
-					c = *first - 'a' + 10;
-				else
-					throw std::invalid_argument("URI malformed");
-
-				c <<= 4;
-
-				if (isdigit(*second))
-					c += *second - '0';
-				else if (*second >= 'A' && *second <= 'F')
-					c += *second - 'A' + 10;
-				else if (*second >= 'a' && *second <= 'f')
-					c += *second - 'a' + 10;
-				else
-					throw std::invalid_argument("URI malformed");
-
-				if (uri_reserved(c) || c == '#')
-					c = *start;
-				else
-					std::advance(start, 2);
-			}
-
-			result += c;
-		}
-
-		return result;
-	}
-
 	static inline std::string to_string(float v, int width, int precision = 3)
 	{
 		char buf[20] = { 0 };
-		std::sprintf(buf, "%*.*f", width, precision, v);
+		std::snprintf(buf, sizeof(buf), "%*.*f", width, precision, v);
 		return std::string(buf);
 	}
 
@@ -1073,148 +946,176 @@ namespace strutil
 		return boost::posix_time::to_iso_extended_string(t);
 	}
 
-	//////////////////////////////////////////////////////////////////////////
-
-	inline uint32_t decode(uint32_t* state, uint32_t* codep, uint32_t byte)
+	static inline bool valid_utf(unsigned char* string, int length)
 	{
-		static constexpr uint8_t utf8d[] =
+		static const unsigned char utf8_table[] =
 		{
-			0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 00..1f
-			0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 20..3f
-			0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 40..5f
-			0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, // 60..7f
-			1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9,9, // 80..9f
-			7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7,7, // a0..bf
-			8,8,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, // c0..df
-			0xa,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x3,0x4,0x3,0x3, // e0..ef
-			0xb,0x6,0x6,0x6,0x5,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8,0x8, // f0..ff
-			0x0,0x1,0x2,0x3,0x5,0x8,0x7,0x1,0x1,0x1,0x4,0x6,0x1,0x1,0x1,0x1, // s0..s0
-			1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,0,1,0,1,1,1,1,1,1, // s1..s2
-			1,2,1,1,1,1,1,2,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1,1, // s3..s4
-			1,2,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,3,1,3,1,1,1,1,1,1, // s5..s6
-			1,3,1,1,1,1,1,3,1,3,1,1,1,1,1,1,1,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // s7..s8
+		  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+		  1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+		  2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
+		  3,3,3,3,3,3,3,3,4,4,4,4,5,5,5,5
 		};
 
-		uint32_t type = utf8d[byte];
+		unsigned char* p;
 
-		*codep = (*state != 0) ?
-			(byte & 0x3fu) | (*codep << 6) :
-			(0xff >> type) & (byte);
+		if (length < 0)
+		{
+			for (p = string; *p != 0; p++);
+			length = (int)(p - string);
+		}
 
-		*state = utf8d[256 + *state * 16 + type];
-		return *state;
-	}
+		for (p = string; length-- > 0; p++)
+		{
+			unsigned char ab, c, d;
 
-	inline bool utf8_check_is_valid(std::string_view str)
-	{
-		uint32_t codepoint;
-		uint32_t state = 0;
-		uint8_t* s = (uint8_t*)str.data();
-		uint8_t* end = s + str.size();
+			c = *p;
+			if (c < 128) continue;                /* ASCII character */
 
-		for (; s != end; ++s)
-			if (decode(&state, &codepoint, *s) == 1)
+			if (c < 0xc0)                         /* Isolated 10xx xxxx byte */
 				return false;
 
-		return state == 0;
-	}
+			if (c >= 0xfe)                        /* Invalid 0xfe or 0xff bytes */
+				return false;
 
-	inline std::optional<std::wstring> utf8_convert(std::string_view str)
-	{
-		uint8_t* start = (uint8_t*)str.data();
-		uint8_t* end = start + str.size();
+			ab = utf8_table[c & 0x3f];            /* Number of additional bytes */
+			if (length < ab)
+				return false;
+			length -= ab;                         /* Length remaining */
 
-		std::wstring wstr;
-		uint32_t codepoint;
-		uint32_t state = 0;
+			/* Check top bits in the second byte */
+			if (((d = *(++p)) & 0xc0) != 0x80)
+				return false;
 
-		for (; start != end; ++start)
-		{
-			switch (decode(&state, &codepoint, *start))
+			/* For each length, check that the remaining bytes start with the 0x80 bit
+			   set and not the 0x40 bit. Then check for an overlong sequence, and for the
+			   excluded range 0xd800 to 0xdfff. */
+			switch (ab)
 			{
-			case 0:
-				if (codepoint <= 0xFFFF) [[likely]]
-				{
-					wstr.push_back(codepoint);
-					continue;
-				}
-				wstr.push_back(0xD7C0 + (codepoint >> 10));
-				wstr.push_back(0xDC00 + (codepoint & 0x3FF));
-				continue;
+				/* 2-byte character. No further bytes to check for 0x80. Check first byte
+				   for for xx00 000x (overlong sequence). */
 			case 1:
-				return {};
-			default:
-				;
+				if ((c & 0x3e) == 0)
+					return false;
+				break;
+			case 2:
+				if ((*(++p) & 0xc0) != 0x80)     /* Third byte */
+					return false;
+				if (c == 0xe0 && (d & 0x20) == 0)
+					return false;
+				if (c == 0xed && d >= 0xa0)
+					return false;
+				break;
+
+				/* 4-byte character. Check 3rd and 4th bytes for 0x80. Then check first 2
+				   bytes for for 1111 0000, xx00 xxxx (overlong sequence), then check for a
+				   character greater than 0x0010ffff (f4 8f bf bf) */
+			case 3:
+				if ((*(++p) & 0xc0) != 0x80)     /* Third byte */
+					return false;
+				if ((*(++p) & 0xc0) != 0x80)     /* Fourth byte */
+					return false;
+				if (c == 0xf0 && (d & 0x30) == 0)
+					return false;
+				if (c > 0xf4 || (c == 0xf4 && d > 0x8f))
+					return false;
+				break;
+
+				/* 5-byte and 6-byte characters are not allowed by RFC 3629, and will be
+				   rejected by the length test below. However, we do the appropriate tests
+				   here so that overlong sequences get diagnosed, and also in case there is
+				   ever an option for handling these larger code points. */
+
+				   /* 5-byte character. Check 3rd, 4th, and 5th bytes for 0x80. Then check for
+					  1111 1000, xx00 0xxx */
+			case 4:
+				if ((*(++p) & 0xc0) != 0x80)     /* Third byte */
+					return false;
+				if ((*(++p) & 0xc0) != 0x80)     /* Fourth byte */
+					return false;
+				if ((*(++p) & 0xc0) != 0x80)     /* Fifth byte */
+					return false;
+				if (c == 0xf8 && (d & 0x38) == 0)
+					return false;
+				break;
+
+				/* 6-byte character. Check 3rd-6th bytes for 0x80. Then check for
+				   1111 1100, xx00 00xx. */
+			case 5:
+				if ((*(++p) & 0xc0) != 0x80)     /* Third byte */
+					return false;
+				if ((*(++p) & 0xc0) != 0x80)     /* Fourth byte */
+					return false;
+				if ((*(++p) & 0xc0) != 0x80)     /* Fifth byte */
+					return false;
+				if ((*(++p) & 0xc0) != 0x80)     /* Sixth byte */
+					return false;
+				if (c == 0xfc && (d & 0x3c) == 0)
+					return false;
+				break;
 			}
-		}
 
-		if (state != 0)
-			return {};
-
-		return wstr;
-	}
-
-	inline bool append(uint32_t cp, std::string& result)
-	{
-		if (!(cp <= 0x0010ffffu && !(cp >= 0xd800u && cp <= 0xdfffu)))
-			return false;
-
-		if (cp < 0x80)
-		{
-			result.push_back(static_cast<uint8_t>(cp));
-		}
-		else if (cp < 0x800)
-		{
-			result.push_back(static_cast<uint8_t>((cp >> 6) | 0xc0));
-			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
-		}
-		else if (cp < 0x10000)
-		{
-			result.push_back(static_cast<uint8_t>((cp >> 12) | 0xe0));
-			result.push_back(static_cast<uint8_t>(((cp >> 6) & 0x3f) | 0x80));
-			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
-		}
-		else {
-			result.push_back(static_cast<uint8_t>((cp >> 18) | 0xf0));
-			result.push_back(static_cast<uint8_t>(((cp >> 12) & 0x3f) | 0x80));
-			result.push_back(static_cast<uint8_t>(((cp >> 6) & 0x3f) | 0x80));
-			result.push_back(static_cast<uint8_t>((cp & 0x3f) | 0x80));
+			/* Character is valid under RFC 2279, but 4-byte and 5-byte characters are
+			   excluded by RFC 3629. The pointer p is currently at the last byte of the
+			   character. */
+			if (ab > 3)
+				return false;
 		}
 
 		return true;
 	}
 
-	inline std::optional<std::string> utf16_convert(std::wstring_view wstr)
+	static inline std::optional<std::u16string> utf8_utf16(std::u8string_view utf8)
 	{
-		std::string result;
+		const char8_t* first = &utf8[0];
+		const char8_t* last = first + utf8.size();
 
-		auto end = wstr.cend();
-		for (auto start = wstr.cbegin(); start != end;)
-		{
-			uint32_t cp = static_cast<uint16_t>(0xffff & *start++);
+		std::u16string result(utf8.size(), char16_t{ 0 });
+		char16_t* dest = &result[0];
+		char16_t* next = nullptr;
 
-			if (cp >= 0xdc00u && cp <= 0xdfffu) [[unlikely]]
-				return {};
+		using codecvt_type = std::codecvt<char16_t, char8_t, std::mbstate_t>;
 
-			if (cp >= 0xd800u && cp <= 0xdbffu)
-			{
-				if (start == end) [[unlikely]]
-					return {};
+		codecvt_type* cvt = new codecvt_type;
 
-				uint32_t trail = static_cast<uint16_t>(0xffff & *start++);
-				if (!(trail >= 0xdc00u && trail <= 0xdfffu)) [[unlikely]]
-					return {};
+		// manages reference to codecvt facet to free memory.
+		std::locale loc;
+		loc = std::locale(loc, cvt);
 
-				cp = (cp << 10) + trail + 0xFCA02400;
-			}
+		codecvt_type::state_type state{};
 
-			if (!append(cp, result))
-				return {};
-		}
-
-		if (result.empty())
+		auto ret = cvt->in(
+			state, first, last, first, dest, dest + result.size(), next);
+		if (ret != codecvt_type::ok)
 			return {};
 
+		result.resize(static_cast<size_t>(next - dest));
+		return result;
+	}
+
+	static inline std::optional<std::u8string> utf16_utf8(std::u16string_view utf16)
+	{
+		const char16_t* first = &utf16[0];
+		const char16_t* last = first + utf16.size();
+
+		std::u8string result((utf16.size() + 1) * 6, char{ 0 });
+		char8_t* dest = &result[0];
+		char8_t* next = nullptr;
+
+		using codecvt_type = std::codecvt<char16_t, char8_t, std::mbstate_t>;
+
+		codecvt_type* cvt = new codecvt_type;
+		// manages reference to codecvt facet to free memory.
+		std::locale loc;
+		loc = std::locale(loc, cvt);
+
+		codecvt_type::state_type state{};
+
+		auto ret = cvt->out(
+			state, first, last, first, dest, dest + result.size(), next);
+		if (ret != codecvt_type::ok)
+			return {};
+
+		result.resize(static_cast<size_t>(next - dest));
 		return result;
 	}
 
@@ -1266,4 +1167,319 @@ namespace strutil
 		result.resize(static_cast<size_t>(dnext - dest));
 		return result;
 	}
+
+
+	//////////////////////////////////////////////////////////////////////////
+	static inline constexpr char ascii_tolower(const char c) noexcept
+	{
+		return ((static_cast<unsigned>(c) - 65U) < 26) ?
+			c + 'a' - 'A' : c;
+	}
+
+	static inline constexpr bool ishexdigit(const char c) noexcept
+	{
+		return isdigit(c) || ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
+	}
+
+	// 0xFFFF
+	// 000008
+	// 123456
+	static inline std::optional<int64_t>
+	from_string(std::string_view str, int base = -1)
+	{
+		const char* start = str.data();
+#if 0
+		const char* end = str.data() + str.size();
+
+		if (start >= end)
+			return {};
+
+		bool has_prefix = false;
+
+		if (*start == '0')
+		{
+			if (base == -1)
+				base = 8;
+
+			if (end - start >= 2 &&
+				ascii_tolower(*(start + 1)) == 'x')
+			{
+				if (base == -1)
+					base = 16;
+				has_prefix = true;
+			}
+		}
+
+		if (base == -1)
+			base = 10;
+
+		if (base == 16 && has_prefix)
+			start += 2;
+
+		const char* p = start;
+		while (p < end)
+		{
+			const char c = *p++;
+			switch (base)
+			{
+			case 8:
+				if (c < '0' || c > '7')
+					return {};
+				continue;
+			case 10:
+				if (!isdigit(c))
+					return {};
+				continue;
+			case 16:
+				if (!ishexdigit(c))
+					return {};
+				continue;
+			}
+		}
+#endif
+		return std::strtoll(start, nullptr, base);
+	}
+
+	static inline bool is_ipv4_host(std::string_view str)
+	{
+		const char* b = str.data();
+		const char* e = str.data() + str.size();
+		int parts = 0;
+		const char* start = b;
+		int64_t last = 0;
+		int64_t max = 0;
+
+		while (b != e)
+		{
+			const char c = *b++;
+			bool eol = b == e;
+
+			if (c == '.' || eol)
+			{
+				if (++parts > 4)
+					return false;
+
+				const char* end = eol ? b : b - 1;
+				auto ret = from_string({ start, static_cast<size_t>(end - start) });
+				if (!ret)
+					return false;
+
+				last = *ret;
+				if (last < 0)
+					return false;
+
+				if (max < last)
+					max = last;
+
+				start = b;
+			}
+		}
+
+		if (parts == 0 || parts > 4)
+		{
+			if (str.size() == 0)
+				return false;
+			return false;
+		}
+
+		if (max > 255 && last < max)
+			return false;
+
+		last >>= (8 * (4 - (parts - 1)));
+		if (last != 0)
+			return false;
+
+		return true;
+	}
+
+	inline bool is_ipv6_host(std::string_view str)
+	{
+		const char* b = str.data();
+		const char* e = str.data() + str.size();
+		const char* start = b;
+		int parts = 0;
+		int colons = 0;
+		char last_char = '\0';
+		uint16_t value[8];
+
+		while (b != e)
+		{
+			const char c = *b++;
+			bool eol = b == e;
+
+			if (c == ':' || eol)
+			{
+				const char* end = eol ? b : b - 1;
+				auto ret = from_string({ start, static_cast<size_t>(end - start) }, 16);
+				if (!ret)
+					return false;
+
+				int64_t n = *ret;
+				if (n > 0xffff)
+					return false;
+
+				value[parts] = static_cast<uint16_t>(n);
+				parts++;
+				start = b;
+
+				if (last_char == ':' && last_char == c)
+				{
+					colons++;
+					if (colons > 1)
+						return false;
+				}
+
+				bool is_ipv4 = false;
+				if (parts == 3 && colons == 1 && n == 0xffff) // ipv4
+					is_ipv4 = true;
+
+				if (parts == 6
+					&& colons == 0
+					&& (value[0] == 0 && value[1] == 0 && value[2] == 0
+						&& value[3] == 0 && value[4] == 0)
+					&& n == 0xffff) // ipv4
+					is_ipv4 = true;
+
+				if (is_ipv4)
+				{
+					if (!is_ipv4_host({ b, static_cast<size_t>(e - b) }))
+						return false;
+
+					return true;
+				}
+			}
+			else
+			{
+				if (!ishexdigit(c))
+					return false;
+			}
+
+			last_char = c;
+		}
+
+		if ((parts > 8) || (parts < 8 && colons == 0))
+			return false;
+
+		return true;
+	}
+
+
+	const inline std::string base64_chars =
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		"abcdefghijklmnopqrstuvwxyz"
+		"0123456789+/";
+
+	inline bool is_base64(unsigned char c)
+	{
+		return (c == 43 || // +
+			(c >= 47 && c <= 57) || // /-9
+			(c >= 65 && c <= 90) || // A-Z
+			(c >= 97 && c <= 122)); // a-z
+	}
+
+	inline std::string base64_encode(unsigned char const* input, size_t len)
+	{
+		std::string ret;
+		int i = 0;
+		int j = 0;
+		unsigned char char_array_3[3];
+		unsigned char char_array_4[4];
+
+		while (len--) {
+			char_array_3[i++] = *(input++);
+			if (i == 3) {
+				char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+				char_array_4[1] = ((char_array_3[0] & 0x03) << 4) +
+					((char_array_3[1] & 0xf0) >> 4);
+				char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) +
+					((char_array_3[2] & 0xc0) >> 6);
+				char_array_4[3] = char_array_3[2] & 0x3f;
+
+				for (i = 0; (i < 4); i++) {
+					ret += base64_chars[char_array_4[i]];
+				}
+				i = 0;
+			}
+		}
+
+		if (i) {
+			for (j = i; j < 3; j++) {
+				char_array_3[j] = '\0';
+			}
+
+			char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+			char_array_4[1] = ((char_array_3[0] & 0x03) << 4) +
+				((char_array_3[1] & 0xf0) >> 4);
+			char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) +
+				((char_array_3[2] & 0xc0) >> 6);
+			char_array_4[3] = char_array_3[2] & 0x3f;
+
+			for (j = 0; (j < i + 1); j++) {
+				ret += base64_chars[char_array_4[j]];
+			}
+
+			while ((i++ < 3)) {
+				ret += '=';
+			}
+		}
+
+		return ret;
+	}
+
+	inline std::string base64_encode(std::string const& input)
+	{
+		return base64_encode(
+			reinterpret_cast<const unsigned char*>(input.data()),
+			input.size()
+		);
+	}
+
+	inline std::string base64_decode(std::string const& input)
+	{
+		size_t in_len = input.size();
+		int i = 0;
+		int j = 0;
+		int in_ = 0;
+		unsigned char char_array_4[4], char_array_3[3];
+		std::string ret;
+
+		while (in_len-- && (input[in_] != '=') && is_base64(input[in_])) {
+			char_array_4[i++] = input[in_]; in_++;
+			if (i == 4) {
+				for (i = 0; i < 4; i++) {
+					char_array_4[i] = static_cast<unsigned char>(base64_chars.find(char_array_4[i]));
+				}
+
+				char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+				char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+				char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+				for (i = 0; (i < 3); i++) {
+					ret += char_array_3[i];
+				}
+				i = 0;
+			}
+		}
+
+		if (i) {
+			for (j = i; j < 4; j++)
+				char_array_4[j] = 0;
+
+			for (j = 0; j < 4; j++)
+				char_array_4[j] = static_cast<unsigned char>(base64_chars.find(char_array_4[j]));
+
+			char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+			char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+			char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+			for (j = 0; (j < i - 1); j++) {
+				ret += static_cast<std::string::value_type>(char_array_3[j]);
+			}
+		}
+
+		return ret;
+	}
+
 }
+
+#endif // INCLUDE__2023_10_18__STRUTIL_HPP

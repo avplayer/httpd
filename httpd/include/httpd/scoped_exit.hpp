@@ -5,7 +5,9 @@
 // Email:  jack.wgm at gmail dot com
 //
 
-#pragma once
+#ifndef INCLUDE__2023_10_18__SCOPED_EXIT_HPP
+#define INCLUDE__2023_10_18__SCOPED_EXIT_HPP
+
 
 #include <type_traits>
 
@@ -47,6 +49,16 @@ public:
 		f_();
 	}
 
+	inline void operator()()
+	{
+		if (stop_token_)
+			return;
+
+		stop_token_ = true;
+
+		f_();
+	}
+
 	inline void cancel()
 	{
 		stop_token_ = true;
@@ -56,3 +68,5 @@ private:
 	T f_;
 	bool stop_token_{ false };
 };
+
+#endif // INCLUDE__2023_10_18__SCOPED_EXIT_HPP

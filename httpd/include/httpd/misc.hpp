@@ -9,7 +9,8 @@
 //
 //
 
-#pragma once
+#ifndef INCLUDE__2023_11_03__MISC_HPP
+#define INCLUDE__2023_11_03__MISC_HPP
 
 #include <algorithm>
 #include <iterator>
@@ -209,3 +210,4 @@ inline int platform_init()
 	return 0;
 }
 
+#endif // INCLUDE__2023_11_03__MISC_HPP

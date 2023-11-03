@@ -9,7 +9,8 @@
 //
 //
 
-#pragma once
+#ifndef INCLUDE__2023_11_03__PUBLISH_SUBSCRIBE_HPP
+#define INCLUDE__2023_11_03__PUBLISH_SUBSCRIBE_HPP
 
 #include <vector>
 #include <functional>
@@ -59,3 +60,5 @@ public:
 private:
 	subscribe_list_type subscribes_;
 };
+
+#endif // INCLUDE__2023_11_03__PUBLISH_SUBSCRIBE_HPP
