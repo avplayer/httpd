@@ -9,12 +9,14 @@
 //
 //
 
-#include "httpd/logging.hpp"
-#include "httpd/scoped_exit.hpp"
-#include "httpd/use_awaitable.hpp"
-#include "httpd/misc.hpp"
-#include "httpd/strutil.hpp"
-#include "httpd/publish_subscribe.hpp"
+#include <map>
+#include <deque>
+#include <string>
+#include <string_view>
+#include <chrono>
+
+#include <fmt/xchar.h>
+#include <fmt/format.h>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
@@ -42,20 +44,17 @@ namespace fs = std::filesystem;
 namespace fs = boost::filesystem;
 #endif
 
-
 #include <boost/signals2.hpp>
 #include <boost/nowide/convert.hpp>
 #include <boost/url.hpp>
 #include <boost/regex.hpp>
 
-#include <fmt/xchar.h>
-#include <fmt/format.h>
-
-#include <map>
-#include <deque>
-#include <string>
-#include <string_view>
-#include <chrono>
+#include "httpd/logging.hpp"
+#include "httpd/scoped_exit.hpp"
+#include "httpd/use_awaitable.hpp"
+#include "httpd/misc.hpp"
+#include "httpd/strutil.hpp"
+#include "httpd/publish_subscribe.hpp"
 
 
 //////////////////////////////////////////////////////////////////////////
