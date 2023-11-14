@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <chrono>
+#include <tuple>
 
 #include <fmt/xchar.h>
 #include <fmt/format.h>
@@ -37,10 +38,10 @@ using net::ip::tcp;
 namespace po = boost::program_options;
 
 #ifdef USE_STD_FILESYSTEM
-#include <filesystem>
+# include <filesystem>
 namespace fs = std::filesystem;
 #else
-#include <boost/filesystem.hpp>
+# include <boost/filesystem.hpp>
 namespace fs = boost::filesystem;
 #endif
 
@@ -113,6 +114,9 @@ fs::path removeLongPathAware(const fs::path& p)
 	return fs::path{ w };
 }
 
+using strutil::add_suffix;
+
+
 //////////////////////////////////////////////////////////////////////////
 
 
@@ -123,7 +127,7 @@ LR"(<html><head><meta charset="UTF-8"><title>Index of {}</title></head><body bgc
 constexpr static auto tail_fmt =
 L"</pre><hr></body></html>";
 constexpr static auto body_fmt =
-L"<a href=\"{}\">{}</a>{}{}              {}\r\n";
+L"<a href=\"{}\">{}</a>{} {}       {}\r\n";
 
 const static std::string satisfiable_html =
 R"x1x(<html>
@@ -445,6 +449,134 @@ inline awaitable_void pipe_session(
 	co_return;
 }
 
+inline std::tuple<std::string, fs::path> file_last_wirte_time(const fs::path& file)
+{
+	auto loc_time = [](auto t) -> struct tm*
+	{
+		using time_type = std::decay_t<decltype(t)>;
+		if constexpr (std::is_same_v<time_type, std::filesystem::file_time_type>)
+		{
+			auto sctp = std::chrono::time_point_cast<
+				std::chrono::system_clock::duration>(t -
+					time_type::now() + std::chrono::system_clock::now());
+			auto time = std::chrono::system_clock::to_time_t(sctp);
+			return std::localtime(&time);
+		}
+		else if constexpr (std::is_same_v<time_type, std::time_t>)
+		{
+			return std::localtime(&t);
+		}
+		else
+		{
+			static_assert(!std::is_same_v<time_type, time_type>, "time type required!");
+		}
+	};
+
+	boost::system::error_code ec;
+	std::string time_string;
+	fs::path unc_path;
+
+	auto ftime = fs::last_write_time(file, ec);
+	if (ec)
+	{
+#ifdef WIN32
+		if (file.string().size() > MAX_PATH)
+		{
+			auto str = file.string();
+			boost::replace_all(str, "/", "\\");
+			unc_path = "\\\\?\\" + str;
+			ftime = fs::last_write_time(unc_path, ec);
+		}
+#endif
+	}
+
+	if (!ec)
+	{
+		auto tm = loc_time(ftime);
+
+		char tmbuf[64] = { 0 };
+		std::strftime(tmbuf,
+			sizeof(tmbuf),
+			"%m-%d-%Y %H:%M",
+			tm);
+
+		time_string = tmbuf;
+	}
+
+	return { time_string, unc_path };
+}
+
+inline std::vector<std::wstring> format_path_list(const std::set<fs::path>& paths)
+{
+	boost::system::error_code ec;
+	std::vector<std::wstring> path_list;
+
+	for (auto it = paths.cbegin(); it != paths.cend(); it++)
+	{
+		const auto& item = *it;
+
+		auto [ftime, unc_path] = file_last_wirte_time(item);
+		std::wstring time_string = boost::nowide::widen(ftime);
+
+		std::wstring rpath;
+
+		if (fs::is_directory(item, ec))
+		{
+			auto leaf = boost::nowide::narrow(item.filename().wstring());
+			leaf = leaf + "/";
+			rpath.assign(leaf.begin(), leaf.end());
+			int width = 50 - rpath.size();
+			width = width < 0 ? 0 : width;
+			std::wstring space(width, L' ');
+			auto show_path = rpath;
+			if (show_path.size() > 50) {
+				show_path = show_path.substr(0, 47);
+				show_path += L"..&gt;";
+			}
+			auto str = fmt::format(body_fmt,
+				rpath,
+				show_path,
+				space,
+				time_string,
+				L"-");
+
+			path_list.push_back(str);
+		}
+		else
+		{
+			auto leaf = boost::nowide::narrow(item.filename().wstring());
+			rpath.assign(leaf.begin(), leaf.end());
+			int width = 50 - (int)rpath.size();
+			width = width < 0 ? 0 : width;
+			std::wstring space(width, L' ');
+			std::wstring filesize;
+			if (unc_path.empty())
+				unc_path = item;
+			auto sz = static_cast<float>(fs::file_size(
+				unc_path, ec));
+			if (ec)
+				sz = 0;
+			filesize = boost::nowide::widen(
+				add_suffix(sz));
+			auto show_path = rpath;
+			if (show_path.size() > 50) {
+				show_path = show_path.substr(0, 47);
+				show_path += L"..&gt;";
+			}
+			auto str = fmt::format(body_fmt,
+				rpath,
+				show_path,
+				space,
+				time_string,
+				filesize);
+
+			path_list.push_back(str);
+		}
+	}
+
+	return path_list;
+}
+
 inline awaitable_void dir_session(
 	tcp_stream& stream,
 	dynamic_request& req,
@@ -480,123 +612,28 @@ inline awaitable_void dir_session(
 		co_return;
 	}
 
-	std::vector<std::wstring> path_list;
-
-	auto loc_time = [](auto t) -> struct tm*
-	{
-		using time_type = std::decay_t<decltype(t)>;
-		if constexpr (std::is_same_v<time_type, std::filesystem::file_time_type>)
-		{
-			auto sctp = std::chrono::time_point_cast<
-				std::chrono::system_clock::duration>(
-					t -
-					time_type::now() +
-					std::chrono::system_clock::now());
-			auto time = std::chrono::system_clock::to_time_t(sctp);
-			return std::localtime(&time);
-		}
-		else if constexpr (std::is_same_v<time_type, std::time_t>)
-		{
-			return std::localtime(&t);
-		}
-		else
-		{
-			static_assert(std::is_same_v<time_type, double>, "time type required!");
-		}
-	};
+	// 遍历目录, 生成目录列表和文件列表.
+	std::set<fs::path> dirs;
+	std::set<fs::path> files;
 
 	for (; it != end; it++)
 	{
 		const auto& item = it->path();
-		fs::path realpath = addLongPathAware(item);
-		std::wstring time_string;
 
-		auto ftime = fs::last_write_time(realpath, ec);
-		if (ec)
-		{
-			LOG_WARN << "Session: "
-				<< connection_id
-				<< ", realpath: "
-				<< realpath
-				<< ", err: "
-				<< ec.message();
-
-			co_await error_session(
-				stream,
-				req,
-				connection_id,
-				http::status::internal_server_error,
-				"internal server error");
-
-			co_return;
-		}
-
-		char tmbuf[64] = { 0 };
-		auto tm = loc_time(ftime);
-
-		if (tm)
-		{
-			std::strftime(
-				tmbuf,
-				sizeof(tmbuf),
-				"%m-%d-%Y %H:%M",
-				tm);
-		}
-
-		time_string = boost::nowide::widen(tmbuf);
-		std::wstring wstr;
-
-		if (fs::is_directory(realpath, ec))
-		{
-			auto leaf = item.filename().wstring();
-			leaf = leaf + L"/";
-			wstr.assign(leaf.begin(), leaf.end());
-
-			int width = 50 - ((int)leaf.size() + 1);
-			width = width < 0 ? 10 : width;
-			std::wstring space(width, L' ');
-
-			auto str = fmt::format(body_fmt,
-				wstr,
-				wstr,
-				space,
-				time_string,
-				L"[DIRECTORY]");
-
-			path_list.push_back(str);
-		}
+		if (fs::is_directory(item, ec))
+			dirs.insert(item);
 		else
-		{
-			auto leaf = item.filename().wstring();
-			wstr.assign(leaf.begin(), leaf.end());
-
-			auto sz = static_cast<float>(
-				fs::file_size(
-					realpath, ec));
-			if (ec)
-				sz = 0;
-
-			std::wstring filesize =
-				boost::nowide::widen(
-					strutil::add_suffix(sz));
-
-			int width = 50 - (int)leaf.size();
-			width = width < 0 ? 10 : width;
-			std::wstring space(width, L' ');
-
-			auto str = fmt::format(body_fmt,
-				wstr,
-				wstr,
-				space,
-				time_string,
-				filesize);
-
-			path_list.push_back(str);
-		}
+			files.insert(item);
 	}
 
-	auto dirs = dir.wstring();
-	auto root_path = boost::replace_first_copy(dirs, global_path.wstring(), L"");
+	std::vector<std::wstring> path_list;
+
+	path_list = format_path_list(dirs);
+	auto file_list = format_path_list(files);
+	path_list.insert(path_list.end(), file_list.begin(), file_list.end());
+
+	auto current_dir = dir.wstring();
+	auto root_path = boost::replace_first_copy(current_dir, global_path.wstring(), L"");
 
 	std::wstring head =
 		fmt::format(
@@ -613,7 +650,6 @@ inline awaitable_void dir_session(
 			L"",
 			L"");
 
-	std::sort(path_list.begin(), path_list.end());
 	for (auto& s : path_list)
 		body += s;
 	body = head + body + tail_fmt;
@@ -956,9 +992,9 @@ inline awaitable_void session(tcp_stream stream)
 
 		// 构造完整路径以及根据请求的目标构造路径.
 		auto current_path = fs::canonical(global_path /
-			boost::nowide::widen(target)).make_preferred();
+			boost::nowide::widen(target), ec).make_preferred();
 
-		if (!current_path.wstring().starts_with(global_path.wstring()))
+		if (!current_path.wstring().starts_with(global_path.wstring()) || ec)
 		{
 			co_await error_session(
 				stream,
