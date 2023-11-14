@@ -451,14 +451,15 @@ inline awaitable_void pipe_session(
 
 inline std::tuple<std::string, fs::path> file_last_wirte_time(const fs::path& file)
 {
-	auto loc_time = [](auto t) -> struct tm*
+	static auto loc_time = [](auto t) -> struct tm*
 	{
 		using time_type = std::decay_t<decltype(t)>;
 		if constexpr (std::is_same_v<time_type, std::filesystem::file_time_type>)
 		{
 			auto sctp = std::chrono::time_point_cast<
 				std::chrono::system_clock::duration>(t -
-					time_type::now() + std::chrono::system_clock::now());
+					std::filesystem::file_time_type::clock::now() +
+						std::chrono::system_clock::now());
 			auto time = std::chrono::system_clock::to_time_t(sctp);
 			return std::localtime(&time);
 		}
