@@ -223,11 +223,13 @@ awaitable_void read_from_stdin()
 	auto ex = co_await net::this_coro::executor;
 
 #ifdef __linux__
-#ifdef BOOST_ASIO_HAS_IO_URING
+#  ifdef BOOST_ASIO_HAS_IO_URING
 	net::basic_stream_file<executor_type> is(ex);
-#else
+#  else
 	net::posix::basic_stream_descriptor<executor_type> is(ex);
-#endif
+#  endif
+#elif defined(__APPLE__)
+	net::posix::basic_stream_descriptor<executor_type> is(ex);
 #elif defined(_WIN32)
 	net::basic_stream_file<executor_type> is(ex);
 #endif
