@@ -92,7 +92,7 @@ using awaitable_void = net::awaitable<void, executor_type>;
 
 //////////////////////////////////////////////////////////////////////////
 
-fs::path addLongPathAware(const fs::path& p)
+inline fs::path addLongPathAware(const fs::path& p)
 {
 	auto w = p.wstring();
 #ifdef _WIN32
@@ -103,7 +103,7 @@ fs::path addLongPathAware(const fs::path& p)
 	return fs::path{ w };
 }
 
-fs::path removeLongPathAware(const fs::path& p)
+inline fs::path removeLongPathAware(const fs::path& p)
 {
 	auto w = p.wstring();
 #ifdef _WIN32
@@ -222,7 +222,7 @@ inline ranges get_ranges(std::string range)
 	return result;
 }
 
-awaitable_void read_from_stdin()
+inline awaitable_void read_from_stdin()
 {
 	auto ex = co_await net::this_coro::executor;
 
