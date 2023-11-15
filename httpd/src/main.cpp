@@ -622,7 +622,7 @@ inline awaitable_void dir_session(
 			req,
 			connection_id,
 			http::status::internal_server_error,
-			"internal server error");
+			"Internal server error");
 
 		co_return;
 	}
