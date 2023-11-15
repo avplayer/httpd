@@ -887,7 +887,10 @@ inline awaitable_void file_session(
 inline awaitable_void session(tcp_stream stream)
 {
 	static int64_t static_connection_id = 0;
+	static size_t num_connections = 0;
+
 	int64_t connection_id = static_connection_id++;
+	num_connections++;
 
 	boost::system::error_code ec;
 
@@ -915,7 +918,13 @@ inline awaitable_void session(tcp_stream stream)
 
 	scoped_exit se_quit([&]()
 		{
-			LOG_DBG << "Session: " << connection_id << ", left...";
+			num_connections--;
+
+			LOG_DBG << "Session: "
+				<< connection_id
+				<< ", left, num connection: "
+				<< num_connections
+				<< "...";
 		});
 
 	flat_buffer buffer;
@@ -1131,7 +1140,7 @@ int main(int argc, char** argv)
 	desc.add_options()
 		("help,h", "Help message.")
 		("listen", po::value<std::string>(&httpd_listen)->default_value("[::0]:80")->value_name("ip:port"), "Httpd tcp listen.")
-		("file", po::value<std::string>(&httpd_doc)->value_name("file/dir/pipe"), "Filename or directory or pipe.")
+		("path", po::value<std::string>(&httpd_doc)->value_name("file/dir/pipe"), "Filename or directory or pipe.")
 		;
 
 	po::variables_map vm;
