@@ -139,6 +139,8 @@ R"x1x(<html>
 </html>
 )x1x";
 
+inline const char* version_string = "nginx/1.20.2";
+
 const static std::map<std::string, std::string> global_mimes =
 {
 	{ ".html", "text/html; charset=utf-8" },
@@ -220,6 +222,18 @@ inline ranges get_ranges(std::string range)
 	}
 
 	return result;
+}
+
+inline std::string server_date_string()
+{
+	auto time = std::time(nullptr);
+	auto gmt = gmtime((const time_t*)&time);
+
+	std::string str(64, '\0');
+	auto ret = strftime((char*)str.data(), 64, "%a, %d %b %Y %H:%M:%S GMT", gmt);
+	str.resize(ret);
+
+	return str;
 }
 
 inline awaitable_void read_from_stdin()
@@ -525,7 +539,7 @@ inline std::vector<std::wstring> format_path_list(const std::set<fs::path>& path
 		{
 			auto leaf = boost::nowide::narrow(item.filename().wstring());
 			leaf = leaf + "/";
-			rpath.assign(leaf.begin(), leaf.end());
+			rpath = boost::nowide::widen(leaf);
 			int width = 50 - rpath.size();
 			width = width < 0 ? 0 : width;
 			std::wstring space(width, L' ');
@@ -546,7 +560,7 @@ inline std::vector<std::wstring> format_path_list(const std::set<fs::path>& path
 		else
 		{
 			auto leaf = boost::nowide::narrow(item.filename().wstring());
-			rpath.assign(leaf.begin(), leaf.end());
+			rpath = boost::nowide::widen(leaf);
 			int width = 50 - (int)rpath.size();
 			width = width < 0 ? 0 : width;
 			std::wstring space(width, L' ');
@@ -660,7 +674,11 @@ inline awaitable_void dir_session(
 		req.version()
 	};
 
+	res.set(http::field::server, version_string);
+	res.set(http::field::date, server_date_string());
+	res.set(http::field::content_type, "text/html; charset=UTF-8");
 	res.keep_alive(req.keep_alive());
+	res.content_length(body.size());
 	res.body() = boost::nowide::narrow(body);
 	res.prepare_payload();
 
