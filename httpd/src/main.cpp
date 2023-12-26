@@ -47,7 +47,6 @@ namespace fs = boost::filesystem;
 
 #include <boost/signals2.hpp>
 #include <boost/nowide/convert.hpp>
-#include <boost/url.hpp>
 #include <boost/regex.hpp>
 
 #include "httpd/logging.hpp"
