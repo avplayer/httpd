@@ -370,8 +370,12 @@ inline awaitable_void pipe_session(
 		[&buffer_queue, &notify]
 	(publish_subscribe::data_type data) mutable
 	{
-		buffer_queue.push_back(data);
-		notify.cancel_one();
+		net::dispatch(notify.get_executor(),
+			[&buffer_queue, &notify, data]() mutable
+			{
+				buffer_queue.push_back(data);
+				notify.cancel_one();
+			});
 	};
 
 	auto subscribe_handle = global_publish_subscribe.subscribe(fetch_data);
