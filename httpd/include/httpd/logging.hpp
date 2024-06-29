@@ -769,7 +769,7 @@ public:
 			fs::path filename;
 
 			if constexpr (LOG_MAXFILE_SIZE <= 0) {
-				auto logfile = std::format("{:04d}{:02d}{:02d}-{:02d}.log",
+				auto logfile = fmt::format("{:04d}{:02d}{:02d}-{:02d}.log",
 					ptm->tm_year + 1900,
 					ptm->tm_mon + 1,
 					ptm->tm_mday,
@@ -777,7 +777,7 @@ public:
 				filename = logpath / logfile;
 			} else {
 				auto utc_time = std::mktime(ptm);
-				auto logfile = std::format("{:04d}{:02d}{:02d}-{}.log",
+				auto logfile = fmt::format("{:04d}{:02d}{:02d}-{}.log",
 					ptm->tm_year + 1900,
 					ptm->tm_mon + 1,
 					ptm->tm_mday,
