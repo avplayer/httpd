@@ -11,3 +11,8 @@ jobs:
       - run: sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
       - run: mkdir build && cd build && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DENABLE_BUILD_WERROR=OFF && ninja
 
+  MacOS:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DENABLE_BUILD_WERROR=OFF && make
