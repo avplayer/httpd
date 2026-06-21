@@ -1738,6 +1738,7 @@ int main(int argc, char** argv)
 				<< info.cert_file.filename().string()
 				<< " (domain: " << info.domain << ")"
 				<< std::endl;
+			break; // 目前只使用找到的第一个有效证书.
 		}
 
 		// Set default password callback and verify options.
