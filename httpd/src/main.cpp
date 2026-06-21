@@ -284,7 +284,7 @@ inline awaitable_void read_from_stdin()
 			if (!is.is_open())
 				break;
 
-			timer.expires_from_now(std::chrono::milliseconds(100));
+			timer.expires_after(std::chrono::milliseconds(100));
 			co_await timer.async_wait(ioc_awaitable[ec]);
 			continue;
 		}
@@ -422,7 +422,7 @@ inline awaitable_void pipe_session(
 			if (file_size == 0)
 				break;
 
-			notify.expires_from_now(std::chrono::seconds(60));
+			notify.expires_after(std::chrono::seconds(60));
 			co_await notify.async_wait(ioc_awaitable[ec]);
 
 			continue;
@@ -1185,7 +1185,7 @@ int main(int argc, char** argv)
 			host,
 			port,
 			tcp_resolver::passive
-		);
+		).begin();
 
 	tcp_acceptor acceptor(ctx, listen_endpoint);
 
