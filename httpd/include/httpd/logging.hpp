@@ -11,26 +11,6 @@
 #ifndef INCLUDE__2016_10_14__LOGGING_HPP
 #define INCLUDE__2016_10_14__LOGGING_HPP
 
-#include <version>
-#include <codecvt>
-#include <clocale>
-#include <fstream>
-#include <chrono>
-#include <list>
-#include <mutex>
-#include <memory>
-#include <string>
-#include <tuple>
-#include <version>
-#include <thread>
-#include <functional>
-#include <filesystem>
-#include <system_error>
-#include <atomic>
-#include <deque>
-#include <csignal>
-#include <condition_variable>
-#include <optional>
 
 #ifndef LOGGING_DISABLE_BOOST_ASIO_ENDPOINT
 # if defined(__has_include)
@@ -111,6 +91,17 @@
 # endif
 #endif
 
+#if defined(__ANDROID__)
+# if __has_include(<android/log.h>)
+#   include <android/log.h>
+#   if !defined(DISABLE_WRITE_LOGGING) && !defined(ENABLE_ANDROID_LOG)
+#	 define DISABLE_WRITE_LOGGING
+#   endif
+# else
+#  error "android/log.h not found"
+# endif
+#endif
+
 //////////////////////////////////////////////////////////////////////////
 #ifndef LOGGING_DISABLE_COMPRESS_LOGS
 # if defined(__has_include)
@@ -137,6 +128,8 @@
 #  pragma warning(disable: 4244 4127)
 # endif // _MSC_VER
 
+#if (_LIBCPP_VERSION < 170000) || defined(__ANDROID__)
+
 # include <fmt/ostream.h>
 # include <fmt/printf.h>
 # include <fmt/format.h>
@@ -148,24 +141,75 @@ namespace std {
 	using ::fmt::make_format_args;
 }
 
+#endif // _LIBCPP_VERSION
+
 # ifdef _MSC_VER
 #  pragma warning(pop)
 # endif
 #endif
 
+#include <version>
+#include <codecvt>
+#include <clocale>
+#include <fstream>
+#include <chrono>
+#include <mutex>
+#include <memory>
+
+#if defined (__cpp_lib_polymorphic_allocator)
+# include <memory_resource>
+#endif
+
+#include <string>
+#include <tuple>
+#include <thread>
+#include <functional>
+#include <filesystem>
+#include <system_error>
+#include <atomic>
+#include <deque>
+#include <csignal>
+#include <condition_variable>
+#include <optional>
+#include <string_view>
 
 //////////////////////////////////////////////////////////////////////////
 //
 // User customization function for hook log, function signature:
 //
-// bool logger_writer(logger_tag,
+// bool tag_invoke(logger_tag,
 //   int64_t time, const int& level, const std::string& message);
+//
+// For example:
+//
+// namespace xlogger {
+//   bool tag_invoke(logger_tag,
+//     int64_t time, const int& level, const std::string& message)
+//   {
+//     // do something.
+//     return true;
+//   }
+// }
+//
+// namespace xlogger {
+//  bool tag_invoke(logger_abort_tag)
+//  {
+//    // return true to abort and stopped logging.
+//    return abort_flag;
+//  }
+// }
 //
 
 
-namespace util {
+namespace xlogger {
 
+#ifndef LOGGING_DISABLE_BOOST_FILESYSTEM
+	namespace fs = boost::filesystem;
+	using error_code = boost::system::error_code;
+#else
 	namespace fs = std::filesystem;
+	using error_code = std::error_code;
+#endif
 
 #ifndef LOGGING_DISABLE_BOOST_ASIO_ENDPOINT
 	namespace net = boost::asio;
@@ -175,23 +219,29 @@ namespace util {
 #	define LOG_APPNAME "application"
 #endif
 
-#ifndef LOG_MAXFILE_SIZE
-#	define LOG_MAXFILE_SIZE (-1)
-#endif // LOG_MAXFILE_SIZE
+#ifndef DEFAULT_LOG_MAXFILE_SIZE
+#	define DEFAULT_LOG_MAXFILE_SIZE (-1)
+#endif // DEFAULT_LOG_MAXFILE_SIZE
+
+
+inline bool global_logging___ = true;
+inline bool global_console_logging___ = true;
+inline bool global_write_logging___ = true;
+inline int64_t global_logfile_size___ = DEFAULT_LOG_MAXFILE_SIZE;
 
 
 #ifdef LOGGING_ENABLE_COMPRESS_LOGS
 
-namespace logging_compress__ {
+namespace xlogging_compress__ {
 
 	struct closefile_deleter {
-		void operator()(FILE* fp) const {
+		inline void operator()(FILE* fp) const {
 			fclose(fp);
 		}
 	};
 
 	struct closegz_deleter {
-		void operator()(gzFile gz) const {
+		inline void operator()(gzFile gz) const {
 			gzclose(gz);
 		}
 	};
@@ -207,26 +257,25 @@ namespace logging_compress__ {
 
 	inline bool do_compress_gz(const std::string& infile)
 	{
-		std::string outfile = infile + LOGGING_GZ_SUFFIX;
-
-		gzFile out = gzopen(outfile.c_str(), "wb6f");
-		if (!out)
-			return false;
-
-		using gzFileType = typename std::remove_pointer<gzFile>::type;
-		std::unique_ptr<gzFileType, closegz_deleter> gz_closer(out);
-
 		FILE* in = fopen(infile.c_str(), "rb");
 		if (!in)
 			return false;
-
 		std::unique_ptr<FILE, closefile_deleter> FILE_closer(in);
-		std::unique_ptr<char[]> bufs(new char[LOGGING_GZ_BUFLEN]);
+
+		std::string outfile = infile + LOGGING_GZ_SUFFIX;
+		gzFile out = gzopen(outfile.c_str(), "wb6f");
+		if (!out)
+			return false;
+		using gzFileType = typename std::remove_pointer<gzFile>::type;
+		std::unique_ptr<gzFileType, closegz_deleter> gz_closer(out);
+
+		std::unique_ptr<char, decltype(&std::free)> bufs((char*)std::malloc(LOGGING_GZ_BUFLEN), &std::free);
 		char* buf = bufs.get();
 		int len;
 
-		for (;;) {
-			len = (int)fread(buf, 1, sizeof(buf), in);
+		for (;;)
+		{
+			len = (int)fread(buf, 1, LOGGING_GZ_BUFLEN, in);
 			if (ferror(in))
 				return false;
 
@@ -235,12 +284,11 @@ namespace logging_compress__ {
 
 			int total = 0;
 			int ret;
-			while (total < len) {
+			while (total < len)
+			{
 				ret = gzwrite(out, buf + total, (unsigned)len - total);
-				if (ret <= 0) {
-					// detail error information see gzerror(out, &ret);
+				if (ret <= 0)
 					return false;
-				}
 				total += ret;
 			}
 		}
@@ -252,11 +300,10 @@ namespace logging_compress__ {
 
 #endif
 
-inline bool global_logging___ = true;
 
 namespace logger_aux__ {
 
-	constexpr long long epoch___ = 0x19DB1DED53E8000LL;
+	inline constexpr long long epoch___ = 0x19DB1DED53E8000LL;
 
 	inline int64_t gettime()
 	{
@@ -317,25 +364,25 @@ namespace logger_aux__ {
 	{
 		struct LocalTime {
 			std::time_t time_;
-			std::tm tm_;
+			std::tm tm_{0};
 
-			LocalTime(std::time_t t) : time_(t) {}
+			explicit LocalTime(std::time_t t) : time_(t) {}
 
-			bool run() {
+			inline bool run() {
 				using namespace internal;
 				return handle(localtime_r(&time_, &tm_));
 			}
 
-			bool handle(std::tm* tm) { return tm != nullptr; }
+			inline bool handle(std::tm* tm) { return tm != nullptr; }
 
-			bool handle(internal::Null<>) {
+			inline bool handle(internal::Null<>) {
 				using namespace internal;
 				return fallback(localtime_s(&tm_, &time_));
 			}
 
-			bool fallback(int res) { return res == 0; }
+			inline bool fallback(int res) { return res == 0; }
 
-			bool fallback(internal::Null<>) {
+			inline bool fallback(internal::Null<>) {
 				using namespace internal;
 				std::tm* tm = std::localtime(&time_);
 				if (tm) tm_ = *tm;
@@ -398,41 +445,6 @@ namespace logger_aux__ {
 		return state == 0;
 	}
 
-	inline std::optional<std::wstring> utf8_convert(std::string_view str)
-	{
-		uint8_t* start = (uint8_t*)str.data();
-		uint8_t* end = start + str.size();
-
-		std::wstring wstr;
-		uint32_t codepoint;
-		uint32_t state = 0;
-
-		for (; start != end; ++start)
-		{
-			switch (decode(&state, &codepoint, *start))
-			{
-			case 0:
-				if (codepoint <= 0xFFFF) [[likely]]
-				{
-					wstr.push_back(static_cast<wchar_t>(codepoint));
-					continue;
-				}
-				wstr.push_back(static_cast<wchar_t>(0xD7C0 + (codepoint >> 10)));
-				wstr.push_back(static_cast<wchar_t>(0xDC00 + (codepoint & 0x3FF)));
-				continue;
-			case 1:
-				return {};
-			default:
-				;
-			}
-		}
-
-		if (state != 0)
-			return {};
-
-		return wstr;
-	}
-
 	inline bool append(uint32_t cp, std::string& result)
 	{
 		if (!(cp <= 0x0010ffffu && !(cp >= 0xd800u && cp <= 0xdfffu)))
@@ -461,40 +473,6 @@ namespace logger_aux__ {
 		}
 
 		return true;
-	}
-
-	inline std::optional<std::string> utf16_convert(std::wstring_view wstr)
-	{
-		std::string result;
-
-		auto end = wstr.cend();
-		for (auto start = wstr.cbegin(); start != end;)
-		{
-			uint32_t cp = static_cast<uint16_t>(0xffff & *start++);
-
-			if (cp >= 0xdc00u && cp <= 0xdfffu) [[unlikely]]
-				return {};
-
-			if (cp >= 0xd800u && cp <= 0xdbffu)
-			{
-				if (start == end) [[unlikely]]
-					return {};
-
-				uint32_t trail = static_cast<uint16_t>(0xffff & *start++);
-				if (!(trail >= 0xdc00u && trail <= 0xdfffu)) [[unlikely]]
-					return {};
-
-				cp = (cp << 10) + trail + 0xFCA02400;
-			}
-
-			if (!append(cp, result))
-				return {};
-		}
-
-		if (result.empty())
-			return {};
-
-		return result;
 	}
 
 #ifdef WIN32
@@ -692,18 +670,23 @@ class auto_logger_file__
 	auto_logger_file__& operator=(const auto_logger_file__&) = delete;
 
 public:
-	auto_logger_file__(std::string log_path = "")
+	explicit auto_logger_file__(std::string log_path = "")
 	{
 		if (!log_path.empty())
 			m_log_path = log_path;
+
+		if (global_logfile_size___ > 0 && global_logfile_size___ < 10 * 1024 * 1024) {
+			// log file size must be greater than 10 MiB.
+			global_logfile_size___ = DEFAULT_LOG_MAXFILE_SIZE;
+		}
 
 		m_log_path = m_log_path / (LOG_APPNAME + std::string(".log"));
 
 		if (!global_logging___)
 			return;
 
-		std::error_code ignore_ec;
-		if (!fs::exists(m_log_path, ignore_ec))
+		error_code ignore_ec;
+		if (!fs::exists(m_log_path, ignore_ec) && global_write_logging___)
 			fs::create_directories(
 				m_log_path.parent_path(), ignore_ec);
 	}
@@ -714,44 +697,36 @@ public:
 
 	typedef std::shared_ptr<std::ofstream> ofstream_ptr;
 
-	void open(const char* path)
+	inline void open(const char* path)
 	{
 		m_log_path = path;
 
 		if (!global_logging___)
 			return;
 
-		std::error_code ignore_ec;
-		if (!fs::exists(m_log_path, ignore_ec))
+		error_code ignore_ec;
+		if (!fs::exists(m_log_path, ignore_ec) && global_write_logging___)
 			fs::create_directories(
 				m_log_path.parent_path(), ignore_ec);
 	}
 
-	std::string log_path() const
+	inline std::string log_path() const
 	{
 		return m_log_path.string();
 	}
 
-	void logging(bool disable) noexcept
-	{
-		m_disable_write = disable;
-	}
-
-	void write([[maybe_unused]] int64_t time,
+	inline void write([[maybe_unused]] int64_t time,
 		const char* str, std::streamsize size)
 	{
-		if (m_disable_write)
-			return;
-
 		bool condition = false;
 		auto hours = time / 1000 / 3600;
 		auto last_hours = m_last_time / 1000 / 3600;
 
-		if (static_cast<int>(m_log_size) > LOG_MAXFILE_SIZE &&
-			LOG_MAXFILE_SIZE > 0)
+		if (m_log_size > global_logfile_size___ &&
+			global_logfile_size___ > 0)
 			condition = true;
 
-		if (last_hours != hours && LOG_MAXFILE_SIZE < 0)
+		if (last_hours != hours && global_logfile_size___ < 0)
 			condition = true;
 
 		while (condition) {
@@ -768,8 +743,8 @@ public:
 			auto logpath = fs::path(m_log_path.parent_path());
 			fs::path filename;
 
-			if constexpr (LOG_MAXFILE_SIZE <= 0) {
-				auto logfile = fmt::format("{:04d}{:02d}{:02d}-{:02d}.log",
+			if (global_logfile_size___ <= 0) {
+				auto logfile = std::format("{:04d}{:02d}{:02d}-{:02d}.log",
 					ptm->tm_year + 1900,
 					ptm->tm_mon + 1,
 					ptm->tm_mday,
@@ -777,7 +752,7 @@ public:
 				filename = logpath / logfile;
 			} else {
 				auto utc_time = std::mktime(ptm);
-				auto logfile = fmt::format("{:04d}{:02d}{:02d}-{}.log",
+				auto logfile = std::format("{:04d}{:02d}{:02d}-{}.log",
 					ptm->tm_year + 1900,
 					ptm->tm_mon + 1,
 					ptm->tm_mday,
@@ -787,7 +762,7 @@ public:
 
 			m_last_time = time;
 
-			std::error_code ec;
+			error_code ec;
 			if (!fs::copy_file(m_log_path, filename, ec))
 				break;
 
@@ -796,14 +771,14 @@ public:
 
 #ifdef LOGGING_ENABLE_COMPRESS_LOGS
 			auto fn = filename.string();
-			std::thread th([fn]()
+			std::thread([fn]()
 				{
-					std::error_code ignore_ec;
-					std::mutex& m = logging_compress__::compress_lock();
+					error_code ignore_ec;
+					std::mutex& m = xlogging_compress__::compress_lock();
 					std::lock_guard lock(m);
-					if (!logging_compress__::do_compress_gz(fn))
+					if (!xlogging_compress__::do_compress_gz(fn))
 					{
-						auto file = fn + logging_compress__::LOGGING_GZ_SUFFIX;
+						auto file = fn + xlogging_compress__::LOGGING_GZ_SUFFIX;
 						fs::remove(file, ignore_ec);
 						if (ignore_ec)
 							std::cerr
@@ -814,8 +789,7 @@ public:
 					}
 
 					fs::remove(fn, ignore_ec);
-				});
-			th.detach();
+				}).detach();
 #endif
 			break;
 		}
@@ -829,7 +803,7 @@ public:
 		}
 
 		if (m_ofstream->is_open()) {
-			m_log_size += size;
+			m_log_size += static_cast<int64_t>(size);
 			m_ofstream->write(str, size);
 			m_ofstream->flush();
 		}
@@ -839,16 +813,15 @@ private:
 	fs::path m_log_path{"./logs"};
 	ofstream_ptr m_ofstream;
 	int64_t m_last_time{ -1 };
-	std::size_t m_log_size{ 0 };
-	bool m_disable_write{ false };
+	int64_t m_log_size{ 0 };
 };
 
-#ifndef DISABLE_LOGGER_THREAD_SAFE
-#define LOGGER_LOCKS_() std::lock_guard \
+#ifndef DISABLE_XLOGGER_THREAD_SAFE
+#define XLOGGER_LOCKS_() std::lock_guard \
 	lock(logger_aux__::lock_single<std::mutex>())
 #else
-#define LOGGER_LOCKS_() ((void)0)
-#endif // LOGGER_THREAD_SAFE
+#define XLOGGER_LOCKS_() ((void)0)
+#endif // DISABLE_XLOGGER_THREAD_SAFE
 
 #ifndef LOGGER_DBG_VIEW_
 #if defined(WIN32) && \
@@ -864,11 +837,21 @@ private:
 #endif // WIN32 && LOGGER_DBG_VIEW
 #endif // LOGGER_DBG_VIEW_
 
-const inline int _logger_debug_id__ = 0;
-const inline int _logger_info_id__  = 1;
-const inline int _logger_warn_id__  = 2;
-const inline int _logger_error_id__ = 3;
-const inline int _logger_file_id__  = 4;
+enum logger_level__ {
+	_logger_debug_id__,
+	_logger_info_id__,
+	_logger_warn_id__,
+	_logger_error_id__,
+	_logger_file_id__
+};
+
+const inline std::string _LOGGER_STR__[] = {
+	" DEBUG ",
+	" INFO  ",
+	" WARN  ",
+	" ERROR ",
+	" FILE  "
+};
 
 const inline std::string _LOGGER_DEBUG_STR__ = " DEBUG ";
 const inline std::string _LOGGER_INFO_STR__  = " INFO  ";
@@ -876,71 +859,95 @@ const inline std::string _LOGGER_WARN_STR__  = " WARN  ";
 const inline std::string _LOGGER_ERR_STR__   = " ERROR ";
 const inline std::string _LOGGER_FILE_STR__  = " FILE  ";
 
-inline void logger_output_console__([[maybe_unused]] bool disable_cout,
-	[[maybe_unused]] const int& level,
+inline void logger_output_console__([[maybe_unused]] const logger_level__& level,
 	[[maybe_unused]] const std::string& prefix,
 	[[maybe_unused]] const std::string& message) noexcept
 {
 #if defined(WIN32)
 
-#if !defined(DISABLE_LOGGER_TO_CONSOLE) || !defined(DISABLE_LOGGER_TO_DBGVIEW)
-	std::wstring title = *logger_aux__::utf8_utf16(prefix);
-	std::wstring msg = *logger_aux__::utf8_utf16(message);
+#if !defined(DISABLE_XLOGGER_TO_CONSOLE) || !defined(DISABLE_XLOGGER_TO_DBGVIEW)
+	std::wstring title;
+	std::wstring msg;
+	auto title_opt = logger_aux__::utf8_utf16(prefix);
+	if (title_opt)
+		title = *title_opt;
+	else
+		BOOST_ASSERT(false && "Log prefix is not valid UTF-8");
+	auto msg_opt = logger_aux__::utf8_utf16(message);
+	if (msg_opt)
+		msg = *msg_opt;
+	else
+		BOOST_ASSERT(false && "Log message is not valid UTF-8");
 #endif
 
-#if !defined(DISABLE_LOGGER_TO_CONSOLE)
-	if (!disable_cout)
+#if !defined(DISABLE_XLOGGER_TO_CONSOLE)
+	HANDLE handle_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
+	CONSOLE_SCREEN_BUFFER_INFO csbi;
+	GetConsoleScreenBufferInfo(handle_stdout, &csbi);
+
+	switch (level)
 	{
-		HANDLE handle_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
-		CONSOLE_SCREEN_BUFFER_INFO csbi;
-		GetConsoleScreenBufferInfo(handle_stdout, &csbi);
-		if (level == _logger_info_id__)
-			SetConsoleTextAttribute(handle_stdout,
-				FOREGROUND_GREEN);
-		else if (level == _logger_debug_id__)
-			SetConsoleTextAttribute(handle_stdout,
-				FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-		else if (level == _logger_warn_id__)
-			SetConsoleTextAttribute(handle_stdout,
-				FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
-		else if (level == _logger_error_id__)
-			SetConsoleTextAttribute(handle_stdout,
-				FOREGROUND_RED | FOREGROUND_INTENSITY);
-
-		WriteConsoleW(handle_stdout,
-			title.data(), (DWORD)title.size(), nullptr, nullptr);
+	case _logger_info_id__:
 		SetConsoleTextAttribute(handle_stdout,
-			FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE);
-
-		WriteConsoleW(handle_stdout,
-			msg.data(), (DWORD)msg.size(), nullptr, nullptr);
-		SetConsoleTextAttribute(handle_stdout, csbi.wAttributes);
+			FOREGROUND_GREEN);
+		break;
+	case _logger_debug_id__:
+		SetConsoleTextAttribute(handle_stdout,
+			FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+		break;
+	case _logger_warn_id__:
+		SetConsoleTextAttribute(handle_stdout,
+			FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+		break;
+	case _logger_error_id__:
+		SetConsoleTextAttribute(handle_stdout,
+			FOREGROUND_RED | FOREGROUND_INTENSITY);
+		break;
 	}
+
+	WriteConsoleW(handle_stdout,
+		title.data(), (DWORD)title.size(), nullptr, nullptr);
+	SetConsoleTextAttribute(handle_stdout,
+		FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE);
+
+	WriteConsoleW(handle_stdout,
+		msg.data(), (DWORD)msg.size(), nullptr, nullptr);
+	SetConsoleTextAttribute(handle_stdout, csbi.wAttributes);
 #endif
 
-#if !defined(DISABLE_LOGGER_TO_DBGVIEW)
+#if !defined(DISABLE_XLOGGER_TO_DBGVIEW)
 	LOGGER_DBG_VIEW_(title + msg);
 #endif
 
-#elif !defined(DISABLE_LOGGER_TO_CONSOLE)
-	if (!disable_cout)
+#elif !defined(DISABLE_XLOGGER_TO_CONSOLE)
+	std::string out;
+
+	switch (level)
 	{
-		std::string out;
-		if (level == _logger_info_id__)
-			std::format_to(std::back_inserter(out),
-				"\033[32m{}\033[0m{}", prefix, message);
-		else if (level == _logger_debug_id__)
-			std::format_to(std::back_inserter(out),
-				"\033[1;32m{}\033[0m{}", prefix, message);
-		else if (level == _logger_warn_id__)
-			std::format_to(std::back_inserter(out),
-				"\033[1;33m{}\033[0m{}", prefix, message);
-		else if (level == _logger_error_id__)
-			std::format_to(std::back_inserter(out),
-				"\033[1;31m{}\033[0m{}", prefix, message);
-		std::cout << out;
-		std::cout.flush();
+	case _logger_info_id__:
+		std::format_to(std::back_inserter(out),
+			"\033[32m{}\033[0m{}", prefix, message);
+		break;
+	case _logger_debug_id__:
+		std::format_to(std::back_inserter(out),
+			"\033[1;32m{}\033[0m{}", prefix, message);
+		break;
+	case _logger_warn_id__:
+		std::format_to(std::back_inserter(out),
+			"\033[1;33m{}\033[0m{}", prefix, message);
+		break;
+	case _logger_error_id__:
+		std::format_to(std::back_inserter(out),
+			"\033[1;31m{}\033[0m{}", prefix, message);
+		break;
+	case _logger_file_id__:
+		// std::format_to(std::back_inserter(out),
+		//	"\033[1;34m{}\033[0m{}", prefix, message);
+		break;
 	}
+
+	std::cout << out;
+	std::cout.flush();
 #endif
 }
 
@@ -959,27 +966,30 @@ inline void logger_output_systemd__(
 }
 #endif // USE_SYSTEMD_LOGGING
 
-inline const std::string& logger_level_string__(const int& level) noexcept
+#ifdef __ANDROID__
+inline void logger_output_android__(
+	const int& level, const std::string& message) noexcept
 {
-	switch (level)
-	{
-	case _logger_debug_id__:
-		return _LOGGER_DEBUG_STR__;
-	case _logger_info_id__:
-		return _LOGGER_INFO_STR__;
-	case _logger_warn_id__:
-		return _LOGGER_WARN_STR__;
-	case _logger_error_id__:
-		return _LOGGER_ERR_STR__;
-	case _logger_file_id__:
-		return _LOGGER_FILE_STR__;
-	}
+	if (level == _logger_info_id__)
+		__android_log_print(ANDROID_LOG_INFO, LOG_APPNAME, "%s", message.c_str());
+	else if (level == _logger_debug_id__)
+		__android_log_print(ANDROID_LOG_DEBUG, LOG_APPNAME, "%s", message.c_str());
+	else if (level == _logger_warn_id__)
+		__android_log_print(ANDROID_LOG_WARN, LOG_APPNAME, "%s", message.c_str());
+	else if (level == _logger_error_id__)
+		__android_log_print(ANDROID_LOG_ERROR, LOG_APPNAME, "%s", message.c_str());
+}
+#endif // __ANDROID__
 
-	BOOST_ASSERT(false && "invalid logging level!");
-	return _LOGGER_DEBUG_STR__;
+inline const std::string& logger_level_string__(const logger_level__& level) noexcept
+{
+	return _LOGGER_STR__[level];
 }
 
 struct logger_tag
+{};
+
+struct logger_abort_tag
 {};
 
 namespace access
@@ -1006,19 +1016,26 @@ namespace access
 					level,
 					message);
 			}
+
+			template <typename Tag>
+			bool operator()(Tag tag) noexcept
+			{
+				return tag_invoke(
+					std::forward<Tag>(tag));
+			}
 		};
 	}
 
 	inline detail::tag_invoke_t tag_invoke{};
 }
 
-inline void logger_writer__(int64_t time, const int& level,
+inline void logger_writer__(int64_t time, const logger_level__& level,
 	const std::string& message,
 	[[maybe_unused]] bool disable_cout = false) noexcept
 {
-	LOGGER_LOCKS_();
-	static auto& logger = util::logger_aux__::writer_single<
-		util::auto_logger_file__>();
+	XLOGGER_LOCKS_();
+	static auto& logger = xlogger::logger_aux__::writer_single<
+		xlogger::auto_logger_file__>();
 	char ts[64] = { 0 };
 	[[maybe_unused]] auto ptm = logger_aux__::time_to_string(ts, time);
 	std::string prefix = ts + logger_level_string__(level);
@@ -1028,14 +1045,29 @@ inline void logger_writer__(int64_t time, const int& level,
 	// User log hook.
 	if (access::tag_invoke(logger_tag(), time, level, message))
 		return;
+	if (access::tag_invoke(logger_abort_tag()))
+		return;
 
 #ifndef DISABLE_WRITE_LOGGING
-	logger.write(time, whole.c_str(), whole.size());
+	if (global_write_logging___)
+		logger.write(time, whole.c_str(), whole.size());
 #endif // !DISABLE_WRITE_LOGGING
-	logger_output_console__(disable_cout, level, prefix, tmp);
+
+	// Output to systemd.
 #ifdef USE_SYSTEMD_LOGGING
 	logger_output_systemd__(level, message);
 #endif // USE_SYSTEMD_LOGGING
+
+	// Output to android.
+#ifdef __ANDROID__
+	logger_output_android__(level, message);
+#endif // __ANDROID__
+
+	// Output to console.
+#if !defined(USE_SYSTEMD_LOGGING) && !defined(__ANDROID__)
+	if (global_console_logging___ && !disable_cout)
+		logger_output_console__(level, prefix, tmp);
+#endif
 }
 
 #if defined(_WIN32) || defined(WIN32)
@@ -1050,7 +1082,7 @@ namespace logger_aux__ {
 	{
 		struct internal_message
 		{
-			int level_;
+			logger_level__ level_;
 			int64_t time_;
 			std::string message_;
 			bool disable_cout_;
@@ -1079,36 +1111,43 @@ namespace logger_aux__ {
 		~async_logger___()
 		{
 			m_abort = true;
-			if (m_bg_thread.joinable())
-				m_bg_thread.join();
+			if (m_internal_thread.joinable())
+				m_internal_thread.join();
 		}
 
 	public:
 #if defined(_WIN32) || defined(WIN32)
-		LPTOP_LEVEL_EXCEPTION_FILTER oldUnhandledExceptionFilter()
+		inline LPTOP_LEVEL_EXCEPTION_FILTER oldUnhandledExceptionFilter()
 		{
 			return m_unexpected_exception_handler;
 		}
 #endif
 
-		void stop()
+		inline void stop()
 		{
 			m_abort = true;
 		}
 
-		void internal_work()
+		inline void internal_work()
 		{
-			while (!m_abort || !m_messages.empty())
-			{
-				std::unique_lock lock(m_bg_mutex);
-
-				if (m_messages.empty())
-					m_bg_cv.wait_for(lock, 128ms);
-
-				while (!m_messages.empty())
+			auto pull_message = [this]() mutable -> std::optional<internal_message>
 				{
+					std::unique_lock lock(m_internal_mutex);
+					if (m_messages.empty())
+						m_internal_cv.wait_for(lock, 128ms);
+					if (m_messages.empty())
+						return std::nullopt;
 					auto message = std::move(m_messages.front());
 					m_messages.pop_front();
+					return std::optional<internal_message>(std::move(message));
+				};
+
+			while (!m_abort || !m_messages.empty())
+			{
+				auto msg = pull_message();
+				if (msg)
+				{
+					auto& message = *msg;
 
 					logger_writer__(message.time_,
 						message.level_,
@@ -1118,17 +1157,17 @@ namespace logger_aux__ {
 			}
 		}
 
-		void post_log(const int& level,
+		inline void post_log(const logger_level__& level,
 			std::string&& message, bool disable_cout = false)
 		{
 			[[maybe_unused]] static auto runthread =
-				&(m_bg_thread = std::thread([this]()
+				&(m_internal_thread = std::thread([this]()
 					{
 						internal_work();
 					}));
 
 			auto time = logger_aux__::gettime();
-			std::unique_lock lock(m_bg_mutex);
+			std::unique_lock lock(m_internal_mutex);
 
 			m_messages.emplace_back(
 				internal_message
@@ -1141,13 +1180,13 @@ namespace logger_aux__ {
 			);
 			lock.unlock();
 
-			m_bg_cv.notify_one();
+			m_internal_cv.notify_one();
 		}
 
 	private:
-		std::thread m_bg_thread;
-		std::mutex m_bg_mutex;
-		std::condition_variable m_bg_cv;
+		std::thread m_internal_thread;
+		std::mutex m_internal_mutex;
+		std::condition_variable m_internal_cv;
 		std::deque<internal_message> m_messages;
 		std::atomic_bool m_abort{ false };
 #if defined(_WIN32) || defined(WIN32)
@@ -1181,13 +1220,13 @@ inline void signal_handler(int)
 
 inline void init_logging(const std::string& path = "")
 {
-	logger_aux__::writer_single<util::auto_logger_file__>(path);
+	logger_aux__::writer_single<xlogger::auto_logger_file__>(path);
 }
 
 inline std::string log_path()
 {
 	auto_logger_file__& file =
-		logger_aux__::writer_single<util::auto_logger_file__>();
+		logger_aux__::writer_single<xlogger::auto_logger_file__>();
 	return file.log_path();
 }
 
@@ -1200,16 +1239,34 @@ inline void shutdown_logging()
 	}
 }
 
-inline void toggle_logging()
+inline void turnoff_logging() noexcept
 {
-	global_logging___ = !global_logging___;
+	global_logging___ = false;
 }
 
-inline void toggle_write_logging(bool disable)
+inline void turnon_logging() noexcept
 {
-	auto_logger_file__& file =
-		logger_aux__::writer_single<util::auto_logger_file__>();
-	file.logging(disable);
+	global_logging___ = true;
+}
+
+inline void toggle_write_logging(bool enable) noexcept
+{
+	global_write_logging___ = enable;
+}
+
+inline void toggle_console_logging(bool enable) noexcept
+{
+	global_console_logging___ = enable;
+}
+
+inline void set_logfile_maxsize(int64_t size) noexcept
+{
+	// log file size must be greater than 10 MiB.
+	if (size > 0 && size < 10 * 1024 * 1024)
+		return;
+
+	// set log file size.
+	global_logfile_size___ = size;
 }
 
 struct auto_init_async_logger
@@ -1228,7 +1285,28 @@ class logger___
 	logger___(const logger___&) = delete;
 	logger___& operator=(const logger___&) = delete;
 public:
-	logger___(const int& level,
+	inline logger___(logger___&& other) noexcept
+		: level_(other.level_)
+		, async_(other.async_)
+		, disable_cout_(other.disable_cout_)
+		, out_(std::move(other.out_))
+	{
+		other.ignore_ = true;
+	}
+
+	inline logger___& operator=(logger___&& other) noexcept
+	{
+		if (this == &other)
+			return *this;
+		level_ = other.level_;
+		async_ = other.async_;
+		disable_cout_ = other.disable_cout_;
+		out_ = std::move(other.out_);
+		other.ignore_ = true;
+		return *this;
+	}
+
+	logger___(const logger_level__& level,
 		bool async = false, bool disable_cout = false)
 		: level_(level)
 		, async_(async)
@@ -1239,7 +1317,7 @@ public:
 	}
 	~logger___()
 	{
-		if (!global_logging___)
+		if (!global_logging___ || ignore_)
 			return;
 
 		// if global_logger_obj___ is nullptr, fallback to
@@ -1258,7 +1336,7 @@ public:
 		if (!global_logging___)
 			return *this;
 		out_ += std::vformat(fmt,
-			std::make_format_args(std::forward<Args>(args)...));
+			std::make_format_args(args...));
 		return *this;
 	}
 
@@ -1325,6 +1403,8 @@ public:
 	}
 	inline logger___& operator<<(const std::string& v)
 	{
+		if (!global_logging___)
+			return *this;
 #ifdef LOGGING_ENABLE_AUTO_UTF8
 		if (!logger_aux__::utf8_check_is_valid(v))
 		{
@@ -1339,14 +1419,44 @@ public:
 #endif
 		return strcat_impl(v);
 	}
+#if defined (__cpp_lib_polymorphic_allocator)
+	inline logger___& operator<<(const std::pmr::string& v)
+	{
+		if (!global_logging___)
+			return *this;
+#ifdef LOGGING_ENABLE_AUTO_UTF8
+		if (!logger_aux__::utf8_check_is_valid(v))
+		{
+			auto wres = logger_aux__::string_wide(v);
+			if (wres)
+			{
+				auto ret = logger_aux__::utf16_utf8(*wres);
+				if (ret)
+					return strcat_impl(*ret);
+			}
+		}
+#endif
+		return strcat_impl(v);
+	}
+#endif
 	inline logger___& operator<<(const std::wstring& v)
 	{
-		return strcat_impl(*logger_aux__::utf16_utf8(v));
+		if (!global_logging___)
+			return *this;
+		auto value = logger_aux__::utf16_utf8(v);
+		if (value)
+			return strcat_impl(*value);
+		return *this;
 	}
 	inline logger___& operator<<(const std::u16string& v)
 	{
-		return strcat_impl(*logger_aux__::utf16_utf8(
-			{(const wchar_t*)v.data(), v.size()}));
+		if (!global_logging___)
+			return *this;
+		auto value = logger_aux__::utf16_utf8(
+			{ (const wchar_t*)v.data(), v.size() });
+		if (value)
+			return strcat_impl(*value);
+		return *this;
 	}
 #if (__cplusplus >= 202002L)
 	inline logger___& operator<<(const std::u8string& v)
@@ -1356,6 +1466,8 @@ public:
 #endif
 	inline logger___& operator<<(const std::string_view& v)
 	{
+		if (!global_logging___)
+			return *this;
 #ifdef LOGGING_ENABLE_AUTO_UTF8
 		if (!logger_aux__::utf8_check_is_valid(v))
 		{
@@ -1373,6 +1485,8 @@ public:
 	inline logger___& operator<<(const boost::string_view& v)
 	{
 		std::string_view sv{v.data(), v.length()};
+		if (!global_logging___)
+			return *this;
 #ifdef LOGGING_ENABLE_AUTO_UTF8
 		if (!logger_aux__::utf8_check_is_valid(sv))
 		{
@@ -1390,6 +1504,8 @@ public:
 	inline logger___& operator<<(const char* v)
 	{
 		std::string_view sv(v);
+		if (!global_logging___)
+			return *this;
 #ifdef LOGGING_ENABLE_AUTO_UTF8
 		if (!logger_aux__::utf8_check_is_valid(sv))
 		{
@@ -1406,7 +1522,12 @@ public:
 	}
 	inline logger___& operator<<(const wchar_t* v)
 	{
-		return strcat_impl(*logger_aux__::utf16_utf8(v));
+		if (!global_logging___)
+			return *this;
+		auto value = logger_aux__::utf16_utf8(v);
+		if (value)
+			return strcat_impl(*value);
+		return *this;
 	}
 	inline logger___& operator<<(const void *v)
 	{
@@ -1605,7 +1726,7 @@ public:
 		return *this;
 	}
 #endif
-	inline logger___& operator<<(const fs::path& p) noexcept
+	inline logger___& operator<<(const std::filesystem::path& p) noexcept
 	{
 		if (!global_logging___)
 			return *this;
@@ -1666,6 +1787,8 @@ public:
 #endif
 	inline logger___& operator<<(const std::thread::id& id) noexcept
 	{
+		if (!global_logging___)
+			return *this;
 		std::ostringstream oss;
 		oss << id;
 		out_ += oss.str();
@@ -1673,9 +1796,10 @@ public:
 	}
 
 	std::string out_;
-	const int& level_;
+	logger_level__ level_;
 	bool async_;
 	bool disable_cout_;
+	bool ignore_{ false };
 };
 
 class empty_logger___
@@ -1687,161 +1811,151 @@ public:
 		return *this;
 	}
 };
-} // namespace util
+} // namespace xlogger
 
-#undef LOG_DBG
-#undef LOG_INFO
-#undef LOG_WARN
-#undef LOG_ERR
-#undef LOG_FILE
+#if (!defined(NDEBUG) || defined(ENABLE_XLOGGER)) && !defined(DISABLE_XLOGGER)
 
-#undef LOG_FMT
-#undef LOG_IFMT
-#undef LOG_WFMT
-#undef LOG_EFMT
-#undef LOG_FFMT
+// API for logging.
+namespace xlogger {
+	inline void init_logging(const std::string& path/* = ""*/);
+	inline std::string log_path();
+	inline std::string log_path();
+	inline void shutdown_logging();
+	inline void turnoff_logging() noexcept;
+	inline void turnon_logging() noexcept;
+	inline void toggle_write_logging(bool enable) noexcept;
+	inline void toggle_console_logging(bool enable) noexcept;
+	inline void set_logfile_maxsize(int64_t size) noexcept;
+}
 
-#undef ASYNC_LOGDBG
-#undef ASYNC_LOGINFO
-#undef ASYNC_LOGWARN
-#undef ASYNC_LOGERR
-#undef ASYNC_LOGFILE
+// API for logging.
+#define XLOG_DBG xlogger::logger___(xlogger::_logger_debug_id__)
+#define XLOG_INFO xlogger::logger___(xlogger::_logger_info_id__)
+#define XLOG_WARN xlogger::logger___(xlogger::_logger_warn_id__)
+#define XLOG_ERR xlogger::logger___(xlogger::_logger_error_id__)
+#define XLOG_FILE xlogger::logger___(xlogger::_logger_file_id__, false, true)
 
-#undef ASYNC_LOGFMT
-#undef ASYNC_LOGIFMT
-#undef ASYNC_LOGWFMT
-#undef ASYNC_LOGEFMT
-#undef ASYNC_LOGFFMT
+// API for logging.
+#define XLOG_FDBG(...) xlogger::logger___( \
+		xlogger::_logger_debug_id__).format_to(__VA_ARGS__)
+#define XLOG_FINFO(...) xlogger::logger___( \
+		xlogger::_logger_info_id__).format_to(__VA_ARGS__)
+#define XLOG_FWARN(...) xlogger::logger___( \
+		xlogger::_logger_warn_id__).format_to(__VA_ARGS__)
+#define XLOG_FERR(...) xlogger::logger___( \
+		xlogger::_logger_error_id__).format_to(__VA_ARGS__)
+#define XLOG_FFILE(...) xlogger::logger___( \
+		xlogger::_logger_file_id__, false, true).format_to(__VA_ARGS__)
 
-#if (defined(DEBUG) || defined(_DEBUG) || \
-	defined(ENABLE_LOGGER)) && !defined(DISABLE_LOGGER)
+#define AXLOG_DBG xlogger::logger___(xlogger::_logger_debug_id__, true)
+#define AXLOG_INFO xlogger::logger___(xlogger::_logger_info_id__, true)
+#define AXLOG_WARN xlogger::logger___(xlogger::_logger_warn_id__, true)
+#define AXLOG_ERR xlogger::logger___(xlogger::_logger_error_id__, true)
+#define AXLOG_FILE xlogger::logger___(xlogger::_logger_file_id__, true, true)
 
-#define LOG_DBG util::logger___(util::_logger_debug_id__)
-#define LOG_INFO util::logger___(util::_logger_info_id__)
-#define LOG_WARN util::logger___(util::_logger_warn_id__)
-#define LOG_ERR util::logger___(util::_logger_error_id__)
-#define LOG_FILE util::logger___(util::_logger_file_id__, false, true)
+#define AXLOG_FDBG(...) xlogger::logger___( \
+		xlogger::_logger_debug_id__, true).format_to(__VA_ARGS__)
+#define AXLOG_FINFO(...) xlogger::logger___( \
+		xlogger::_logger_info_id__, true).format_to(__VA_ARGS__)
+#define AXLOG_FWARN(...) xlogger::logger___( \
+		xlogger::_logger_warn_id__, true).format_to(__VA_ARGS__)
+#define AXLOG_FERR(...) xlogger::logger___( \
+		xlogger::_logger_error_id__, true).format_to(__VA_ARGS__)
+#define AXLOG_FFILE(...) xlogger::logger___( \
+		xlogger::_logger_file_id__, true, true).format_to(__VA_ARGS__)
 
-#define LOG_FMT(...) util::logger___( \
-		util::_logger_debug_id__).format_to(__VA_ARGS__)
-#define LOG_IFMT(...) util::logger___( \
-		util::_logger_info_id__).format_to(__VA_ARGS__)
-#define LOG_WFMT(...) util::logger___( \
-		util::_logger_warn_id__).format_to(__VA_ARGS__)
-#define LOG_EFMT(...) util::logger___( \
-		util::_logger_error_id__).format_to(__VA_ARGS__)
-#define LOG_FFMT(...) util::logger___( \
-		util::_logger_file_id__, false, true).format_to(__VA_ARGS__)
-
-#define ASYNC_LOGDBG util::logger___(util::_logger_debug_id__, true)
-#define ASYNC_LOGINFO util::logger___(util::_logger_info_id__, true)
-#define ASYNC_LOGWARN util::logger___(util::_logger_warn_id__, true)
-#define ASYNC_LOGERR util::logger___(util::_logger_error_id__, true)
-#define ASYNC_LOGFILE util::logger___(util::_logger_file_id__, true, true)
-
-#define ASYNC_LOGFMT(...) util::logger___( \
-		util::_logger_debug_id__, true).format_to(__VA_ARGS__)
-#define ASYNC_LOGIFMT(...) util::logger___( \
-		util::_logger_info_id__, true).format_to(__VA_ARGS__)
-#define ASYNC_LOGWFMT(...) util::logger___( \
-		util::_logger_warn_id__, true).format_to(__VA_ARGS__)
-#define ASYNC_LOGEFMT(...) util::logger___( \
-		util::_logger_error_id__, true).format_to(__VA_ARGS__)
-#define ASYNC_LOGFFMT(...) util::logger___( \
-		util::_logger_file_id__, true, true).format_to(__VA_ARGS__)
-
-#define ASYNC_VLOGDBG ASYNC_LOGDBG \
+#define AXVLOG_DBG AXLOG_DBG \
 	<< "(" << __FILE__ << ":" << __LINE__ << "): "
-#define ASYNC_VLOGINFO ASYNC_LOGINFO \
+#define AXVLOG_INFO AXLOG_INFO \
 	<< "(" << __FILE__ << ":" << __LINE__ << "): "
-#define ASYNC_VLOGWARN ASYNC_LOGWARN \
+#define AXVLOG_WARN AXLOG_WARN \
 	<< "(" << __FILE__ << ":" << __LINE__ << "): "
-#define ASYNC_VLOGERR ASYNC_LOGERR \
+#define AXVLOG_ERR AXLOG_ERR \
 	<< "(" << __FILE__ << ":" << __LINE__ << "): "
-#define ASYNC_VLOGFILE ASYNC_LOGFILE \
+#define AXVLOG_FILE AXLOG_FILE \
 	<< "(" << __FILE__ << ":" << __LINE__ << "): "
 
-#define ASYNC_VLOGFMT(...) (ASYNC_LOGDBG << "(" \
+#define AXVLOG_FMT(...) (AXLOG_DBG << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
-#define ASYNC_VLOGIFMT(...) (ASYNC_LOGINFO << "(" \
+#define AXVLOG_IFMT(...) (AXLOG_INFO << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
-#define ASYNC_VLOGWFMT(...) (ASYNC_LOGWARN << "(" \
+#define AXVLOG_WFMT(...) (AXLOG_WARN << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
-#define ASYNC_VLOGEFMT(...) (ASYNC_LOGERR << "(" \
+#define AXVLOG_EFMT(...) (AXLOG_ERR << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
-#define ASYNC_VLOGFFMT(...) (ASYNC_LOGFILE << "(" \
+#define AXVLOG_FFMT(...) (AXLOG_FILE << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
 
-#define VLOG_DBG LOG_DBG << "(" << __FILE__ << ":" << __LINE__ << "): "
-#define VLOG_INFO LOG_INFO << "(" << __FILE__ << ":" << __LINE__ << "): "
-#define VLOG_WARN LOG_WARN << "(" << __FILE__ << ":" << __LINE__ << "): "
-#define VLOG_ERR LOG_ERR << "(" << __FILE__ << ":" << __LINE__ << "): "
-#define VLOG_FILE LOG_FILE << "(" << __FILE__ << ":" << __LINE__ << "): "
+#define VXLOG_DBG XLOG_DBG << "(" << __FILE__ << ":" << __LINE__ << "): "
+#define VXLOG_INFO XLOG_INFO << "(" << __FILE__ << ":" << __LINE__ << "): "
+#define VXLOG_WARN XLOG_WARN << "(" << __FILE__ << ":" << __LINE__ << "): "
+#define VXLOG_ERR XLOG_ERR << "(" << __FILE__ << ":" << __LINE__ << "): "
+#define VXLOG_FILE XLOG_FILE << "(" << __FILE__ << ":" << __LINE__ << "): "
 
-#define VLOG_FMT(...) (LOG_DBG << "(" \
+#define VXLOG_FDBG(...) (XLOG_DBG << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
-#define VLOG_IFMT(...) (LOG_INFO << "(" \
+#define VXLOG_FINFO(...) (XLOG_INFO << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
-#define VLOG_WFMT(...) (LOG_WARN << "(" \
+#define VXLOG_FWARN(...) (XLOG_WARN << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
-#define VLOG_EFMT(...) (LOG_ERR << "(" \
+#define VXLOG_FERR(...) (XLOG_ERR << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
-#define VLOG_FFMT(...) (LOG_FILE << "(" \
+#define VXLOG_FFILE(...) (XLOG_FILE << "(" \
 		<< __FILE__ << ":" << __LINE__ << "): ").format_to(__VA_ARGS__)
 
 
 #define INIT_ASYNC_LOGGING() [[maybe_unused]] \
-		util::auto_init_async_logger ____init_logger____
+		xlogger::auto_init_async_logger ____init_logger____
 
 #else
 
-#define LOG_DBG util::empty_logger___()
-#define LOG_INFO util::empty_logger___()
-#define LOG_WARN util::empty_logger___()
-#define LOG_ERR util::empty_logger___()
-#define LOG_FILE util::empty_logger___()
+#define XLOG_DBG xlogger::empty_logger___()
+#define XLOG_INFO xlogger::empty_logger___()
+#define XLOG_WARN xlogger::empty_logger___()
+#define XLOG_ERR xlogger::empty_logger___()
+#define XLOG_FILE xlogger::empty_logger___()
 
-#define LOG_FMT(...) util::empty_logger___()
-#define LOG_IFMT(...) util::empty_logger___()
-#define LOG_WFMT(...) util::empty_logger___()
-#define LOG_EFMT(...) util::empty_logger___()
-#define LOG_FFMT(...) util::empty_logger___()
+#define XLOG_FDBG(...) xlogger::empty_logger___()
+#define XLOG_FINFO(...) xlogger::empty_logger___()
+#define XLOG_FWARN(...) xlogger::empty_logger___()
+#define XLOG_FERR(...) xlogger::empty_logger___()
+#define XLOG_FFILE(...) xlogger::empty_logger___()
 
-#define VLOG_DBG(...) util::empty_logger___()
-#define VLOG_INFO(...) util::empty_logger___()
-#define VLOG_WARN(...) util::empty_logger___()
-#define VLOG_ERR(...) util::empty_logger___()
-#define VLOG_FILE(...) util::empty_logger___()
+#define VXLOG_DBG(...) xlogger::empty_logger___()
+#define VXLOG_INFO(...) xlogger::empty_logger___()
+#define VXLOG_WARN(...) xlogger::empty_logger___()
+#define VXLOG_ERR(...) xlogger::empty_logger___()
+#define VXLOG_FILE(...) xlogger::empty_logger___()
 
-#define VLOG_FMT(...) util::empty_logger___()
-#define VLOG_IFMT(...) util::empty_logger___()
-#define VLOG_WFMT(...) util::empty_logger___()
-#define VLOG_EFMT(...) util::empty_logger___()
-#define VLOG_FFMT(...) util::empty_logger___()
+#define VXLOG_FDBG(...) xlogger::empty_logger___()
+#define VXLOG_FINFO(...) xlogger::empty_logger___()
+#define VXLOG_FWARN(...) xlogger::empty_logger___()
+#define VXLOG_FERR(...) xlogger::empty_logger___()
+#define VXLOG_FFILE(...) xlogger::empty_logger___()
 
-#define ASYNC_LOGDBG util::empty_logger___()
-#define ASYNC_LOGINFO util::empty_logger___()
-#define ASYNC_LOGWARN util::empty_logger___()
-#define ASYNC_LOGERR util::empty_logger___()
-#define ASYNC_LOGFILE util::empty_logger___()
+#define AXLOG_DBG xlogger::empty_logger___()
+#define AXLOG_INFO xlogger::empty_logger___()
+#define AXLOG_WARN xlogger::empty_logger___()
+#define AXLOG_ERR xlogger::empty_logger___()
+#define AXLOG_FILE xlogger::empty_logger___()
 
-#define ASYNC_LOGFMT(...) util::empty_logger___()
-#define ASYNC_LOGIFMT(...) util::empty_logger___()
-#define ASYNC_LOGWFMT(...) util::empty_logger___()
-#define ASYNC_LOGEFMT(...) util::empty_logger___()
-#define ASYNC_LOGFFMT(...) util::empty_logger___()
+#define AXLOG_FDBG(...) xlogger::empty_logger___()
+#define AXLOG_FINFO(...) xlogger::empty_logger___()
+#define AXLOG_FWARN(...) xlogger::empty_logger___()
+#define AXLOG_FERR(...) xlogger::empty_logger___()
+#define AXLOG_FFILE(...) xlogger::empty_logger___()
 
-#define ASYNC_VLOGDBG LOG_DBG
-#define ASYNC_VLOGINFO LOG_INFO
-#define ASYNC_VLOGWARN LOG_WARN
-#define ASYNC_VLOGERR LOG_ERR
-#define ASYNC_VLOGFILE LOG_FILE
+#define AXVLOG_DBG XLOG_DBG
+#define AXVLOG_INFO XLOG_INFO
+#define AXVLOG_WARN XLOG_WARN
+#define AXVLOG_ERR XLOG_ERR
+#define AXVLOG_FILE XLOG_FILE
 
-#define ASYNC_VLOGFMT LOG_FMT
-#define ASYNC_VLOGIFMT LOG_IFMT
-#define ASYNC_VLOGWFMT LOG_WFMT
-#define ASYNC_VLOGEFMT LOG_EFMT
-#define ASYNC_VLOGFFMT LOG_FFMT
+#define AXVLOG_FMT XLOG_FDBG
+#define AXVLOG_IFMT XLOG_FINFO
+#define AXVLOG_WFMT XLOG_FWARN
+#define AXVLOG_EFMT XLOG_FERR
+#define AXVLOG_FFMT XLOG_FFILE
 
 #define INIT_ASYNC_LOGGING() void
 
