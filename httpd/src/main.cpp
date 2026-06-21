@@ -262,16 +262,16 @@ inline awaitable_void read_from_stdin()
 
 	if (ec)
 	{
-		LOG_ERR << "Open stdin error: " << ec.message();
+		XLOG_ERR << "Open stdin error: " << ec.message();
 		co_return;
 	}
 
-	LOG_DBG << "Open stdin successfully";
+	XLOG_DBG << "Open stdin successfully";
 
 	scoped_exit se([]()
 		{
 			global_quit = true;
-			LOG_DBG << "Quit read from stdin";
+			XLOG_DBG << "Quit read from stdin";
 		});
 
 	steady_timer timer(ex);
@@ -307,7 +307,7 @@ inline awaitable_void read_from_stdin()
 
 			if (global_publish_subscribe.size() == 0)
 			{
-				LOG_DBG << "No client connection";
+				XLOG_DBG << "No client connection";
 				break;
 			}
 
@@ -346,7 +346,7 @@ inline awaitable_void error_session(
 		ioc_awaitable[ec]);
 	if (ec)
 	{
-		LOG_ERR << "Session: "
+		XLOG_ERR << "Session: "
 			<< connection_id
 			<< ", async_write: "
 			<< ec.message();
@@ -408,7 +408,7 @@ inline awaitable_void pipe_session(
 		ioc_awaitable[ec]);
 	if (ec)
 	{
-		LOG_ERR << "Session: "
+		XLOG_ERR << "Session: "
 			<< connection_id
 			<< ", async_write_header: "
 			<< ec.message();
@@ -455,7 +455,7 @@ inline awaitable_void pipe_session(
 
 		if (ec)
 		{
-			LOG_ERR << "Session: "
+			XLOG_ERR << "Session: "
 				<< connection_id
 				<< ", async_write body: "
 				<< ec.message();
@@ -601,7 +601,7 @@ inline awaitable_void dir_session(
 	int64_t connection_id,
 	fs::path dir)
 {
-	LOG_DBG << "Session: "
+	XLOG_DBG << "Session: "
 		<< connection_id
 		<< ", path: "
 		<< dir;
@@ -613,7 +613,7 @@ inline awaitable_void dir_session(
 
 	if (ec)
 	{
-		LOG_WARN << "Session: "
+		XLOG_WARN << "Session: "
 			<< connection_id
 			<< ", path: "
 			<< dir
@@ -696,10 +696,10 @@ inline awaitable_void dir_session(
 		ioc_awaitable[ec]);
 
 	if (ec)
-		LOG_ERR << "Session: "
-		<< connection_id
-		<< ", err: "
-		<< ec.message();
+		XLOG_ERR << "Session: "
+			<< connection_id
+			<< ", err: "
+			<< ec.message();
 
 	co_return;
 }
@@ -710,7 +710,7 @@ inline awaitable_void file_session(
 	int64_t connection_id,
 	fs::path file)
 {
-	LOG_DBG << "Session: "
+	XLOG_DBG << "Session: "
 		<< connection_id
 		<< ", file: "
 		<< file;
@@ -830,7 +830,7 @@ inline awaitable_void file_session(
 		ioc_awaitable[ec]);
 	if (ec)
 	{
-		LOG_WARN << "Session: "
+		XLOG_WARN << "Session: "
 			<< connection_id
 			<< ", async_write_header: "
 			<< ec.message();
@@ -876,7 +876,7 @@ inline awaitable_void file_session(
 		}
 		if (ec)
 		{
-			LOG_WARN << "Session: "
+			XLOG_WARN << "Session: "
 				<< connection_id
 				<< ", async_write: "
 				<< ec.message();
@@ -913,7 +913,7 @@ inline awaitable_void session(tcp_stream stream)
 		}
 	}
 
-	LOG_DBG << "Session: "
+	XLOG_DBG << "Session: "
 		<< connection_id
 		<< ", host: "
 		<< remote_host
@@ -923,7 +923,7 @@ inline awaitable_void session(tcp_stream stream)
 		{
 			num_connections--;
 
-			LOG_DBG << "Session: "
+			XLOG_DBG << "Session: "
 				<< connection_id
 				<< ", left, num connection: "
 				<< num_connections
@@ -959,7 +959,7 @@ inline awaitable_void session(tcp_stream stream)
 				ioc_awaitable[ec]);
 			if (ec)
 			{
-				LOG_ERR << "Session: "
+				XLOG_ERR << "Session: "
 					<< connection_id
 					<< ", expect async_write: "
 					<< ec.message();
