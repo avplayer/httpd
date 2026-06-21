@@ -10,6 +10,8 @@
 // Test that header file is self-contained.
 #include <boost/json/parser.hpp>
 
+#include <boost/core/detail/static_assert.hpp>
+
 #include "test_suite.hpp"
 
 namespace boost {
@@ -25,7 +27,7 @@ public:
     }
 
     bool
-    hasLocation(error_code const& ec)
+    hasLocation(system::error_code const& ec)
     {
         return ec.has_location();
     }
@@ -34,11 +36,11 @@ public:
     testCtors()
     {
         // parser(parser const&)
-        BOOST_STATIC_ASSERT(
+        BOOST_CORE_STATIC_ASSERT(
             ! std::is_copy_constructible<parser>::value);
 
         // operator=(parser const&)
-        BOOST_STATIC_ASSERT(
+        BOOST_CORE_STATIC_ASSERT(
             ! std::is_copy_assignable<parser>::value);
 
         // ~parser()
@@ -370,7 +372,7 @@ public:
     run()
     {
         testCtors();
-        testMembers<error_code>();
+        testMembers<system::error_code>();
         testMembers<std::error_code>();
     }
 };

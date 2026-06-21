@@ -1,6 +1,6 @@
 //
 // Copyright (c) 2009-2011 Artyom Beilis (Tonkikh)
-// Copyright (c) 2021-2022 Alexander Grund
+// Copyright (c) 2021-2024 Alexander Grund
 //
 // Distributed under the Boost Software License, Version 1.0.
 // https://www.boost.org/LICENSE_1_0.txt
@@ -21,6 +21,7 @@
 
 #include "boostLocale/test/tools.hpp"
 #include "boostLocale/test/unit_test.hpp"
+#include "formatting_common.hpp"
 
 const std::string test_locale_name = "en_US";
 std::string message_path = "./";
@@ -30,76 +31,68 @@ std::string message_path = "./";
 #    include <unicode/numfmt.h>
 #    include <unicode/timezone.h>
 #    include <unicode/uversion.h>
-#    define BOOST_LOCALE_ICU_VERSION (U_ICU_VERSION_MAJOR_NUM * 100 + U_ICU_VERSION_MINOR_NUM)
-#    define BOOST_LOCALE_ICU_VERSION_EXACT (BOOST_LOCALE_ICU_VERSION * 100 + U_ICU_VERSION_PATCHLEVEL_NUM)
+#endif
 
-const icu::Locale& get_icu_test_locale()
+using format_style_t = std::ios_base&(std::ios_base&);
+
+namespace {
+#ifndef BOOST_LOCALE_WITH_ICU
+const std::string icu_full_gmt_name;
+// clang-format off
+std::string get_ICU_currency_iso(...){ return ""; } // LCOV_EXCL_LINE
+std::string get_ICU_date(...){ return ""; } // LCOV_EXCL_LINE
+std::string get_ICU_datetime(...){ return ""; } // LCOV_EXCL_LINE
+std::string get_ICU_time(...){ return ""; } // LCOV_EXCL_LINE
+// clang-format on
+#else
+const icu::Locale& get_ICU_test_locale()
 {
     static icu::Locale locale = icu::Locale::createCanonical(test_locale_name.c_str());
     return locale;
 }
 
-std::string from_icu_string(const icu::UnicodeString& str)
+std::string from_ICU_string(const icu::UnicodeString& str)
 {
     return boost::locale::conv::utf_to_utf<char>(str.getBuffer(), str.getBuffer() + str.length());
 }
-#else
-#    define BOOST_LOCALE_ICU_VERSION 0
-#    define BOOST_LOCALE_ICU_VERSION_EXACT 0
-#endif
 
-// Currency style changes between ICU versions, so get "real" value from ICU
-#if BOOST_LOCALE_ICU_VERSION >= 402
-
-std::string get_icu_currency_iso(const double value)
+std::string get_ICU_currency_iso(const double value)
 {
-#    if BOOST_LOCALE_ICU_VERSION >= 408
-    auto styleIso = UNUM_CURRENCY_ISO;
-#    else
-    auto styleIso = icu::NumberFormat::kIsoCurrencyStyle;
-#    endif
     UErrorCode err = U_ZERO_ERROR;
-    std::unique_ptr<icu::NumberFormat> fmt(icu::NumberFormat::createInstance(get_icu_test_locale(), styleIso, err));
+    std::unique_ptr<icu::NumberFormat> fmt(
+      icu::NumberFormat::createInstance(get_ICU_test_locale(), UNUM_CURRENCY_ISO, err));
     TEST_REQUIRE(U_SUCCESS(err) && fmt.get());
 
     icu::UnicodeString tmp;
-    return from_icu_string(fmt->format(value, tmp));
+    return from_ICU_string(fmt->format(value, tmp));
 }
 
-#endif
-
-using format_style_t = std::ios_base&(std::ios_base&);
-
-#ifdef BOOST_LOCALE_WITH_ICU
-std::string get_icu_gmt_name(icu::TimeZone::EDisplayType style)
+std::string get_ICU_gmt_name(icu::TimeZone::EDisplayType style)
 {
     icu::UnicodeString tmp;
-    return from_icu_string(icu::TimeZone::getGMT()->getDisplayName(false, style, get_icu_test_locale(), tmp));
+    return from_ICU_string(icu::TimeZone::getGMT()->getDisplayName(false, style, get_ICU_test_locale(), tmp));
 }
 
 // This changes between ICU versions, e.g. "GMT" or "Greenwich Mean Time"
-const std::string icu_full_gmt_name = get_icu_gmt_name(icu::TimeZone::EDisplayType::LONG);
+const std::string icu_full_gmt_name = get_ICU_gmt_name(icu::TimeZone::EDisplayType::LONG);
 
-std::string get_ICU_time(format_style_t style, const time_t ts, const char* tz = nullptr)
+std::string get_ICU_date(format_style_t style, const time_t ts)
 {
     using icu::DateFormat;
     DateFormat::EStyle icu_style = DateFormat::kDefault;
     namespace as = boost::locale::as;
-    if(style == as::time_short)
+    if(style == as::date_short)
         icu_style = DateFormat::kShort;
-    else if(style == as::time_medium)
+    else if(style == as::date_medium)
         icu_style = DateFormat::kMedium;
-    else if(style == as::time_long)
+    else if(style == as::date_long)
         icu_style = DateFormat::kLong;
-    else if(style == as::time_full)
+    else if(style == as::date_full)
         icu_style = DateFormat::kFull;
-    std::unique_ptr<icu::DateFormat> fmt(icu::DateFormat::createTimeInstance(icu_style, get_icu_test_locale()));
-    if(!tz)
-        fmt->setTimeZone(*icu::TimeZone::getGMT());
-    else
-        fmt->adoptTimeZone(icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(tz)));
+    std::unique_ptr<icu::DateFormat> fmt(icu::DateFormat::createDateInstance(icu_style, get_ICU_test_locale()));
+    fmt->setTimeZone(*icu::TimeZone::getGMT());
     icu::UnicodeString s;
-    return from_icu_string(fmt->format(ts * 1000., s));
+    return from_ICU_string(fmt->format(ts * 1000., s));
 }
 
 std::string get_ICU_datetime(format_style_t style, const time_t ts)
@@ -116,19 +109,35 @@ std::string get_ICU_datetime(format_style_t style, const time_t ts)
     else if(style == as::time_full)
         icu_style = DateFormat::kFull;
     std::unique_ptr<icu::DateFormat> fmt(
-      icu::DateFormat::createDateTimeInstance(icu_style, icu_style, get_icu_test_locale()));
+      icu::DateFormat::createDateTimeInstance(icu_style, icu_style, get_ICU_test_locale()));
     fmt->setTimeZone(*icu::TimeZone::getGMT());
     icu::UnicodeString s;
-    return from_icu_string(fmt->format(ts * 1000., s));
+    return from_ICU_string(fmt->format(ts * 1000., s));
 }
 
-#else
-const std::string icu_full_gmt_name;
-// clang-format off
-std::string get_ICU_time(...){ return ""; } // LCOV_EXCL_LINE
-std::string get_ICU_datetime(...){ return ""; } // LCOV_EXCL_LINE
-// clang-format on
+std::string get_ICU_time(format_style_t style, const time_t ts, const char* tz = nullptr)
+{
+    using icu::DateFormat;
+    DateFormat::EStyle icu_style = DateFormat::kDefault;
+    namespace as = boost::locale::as;
+    if(style == as::time_short)
+        icu_style = DateFormat::kShort;
+    else if(style == as::time_medium)
+        icu_style = DateFormat::kMedium;
+    else if(style == as::time_long)
+        icu_style = DateFormat::kLong;
+    else if(style == as::time_full)
+        icu_style = DateFormat::kFull;
+    std::unique_ptr<icu::DateFormat> fmt(icu::DateFormat::createTimeInstance(icu_style, get_ICU_test_locale()));
+    if(!tz)
+        fmt->setTimeZone(*icu::TimeZone::getGMT());
+    else
+        fmt->adoptTimeZone(icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(tz)));
+    icu::UnicodeString s;
+    return from_ICU_string(fmt->format(ts * 1000., s));
+}
 #endif
+} // namespace
 
 using namespace boost::locale;
 
@@ -138,17 +147,17 @@ void test_fmt_impl(std::basic_ostringstream<CharType>& ss,
                    const std::basic_string<CharType>& expected,
                    int line)
 {
-    ss << value;
-    test_eq_impl(ss.str(), expected, "", line);
+    test_impl(!!(ss << value), "Formatting failed", __FILE__, line);
+    test_eq_impl(ss.str(), expected, "", __FILE__, line);
 }
 
 template<typename T, typename CharType>
 void test_parse_impl(std::basic_istringstream<CharType>& ss, const T& expected, int line)
 {
     T v;
-    ss >> v >> std::ws;
-    test_eq_impl(v, expected, "v == expected", line);
-    test_eq_impl(ss.eof(), true, "ss.eof()", line);
+    test_impl(!!(ss >> v), "Parsing failed", __FILE__, line);
+    test_eq_impl(v, expected, "v == expected", __FILE__, line);
+    test_eq_impl((ss >> std::ws).eof(), true, "ss.eof()", __FILE__, line);
 }
 
 template<typename T, typename CharType>
@@ -157,8 +166,9 @@ void test_parse_at_impl(std::basic_istringstream<CharType>& ss, const T& expecte
     T v;
     CharType c_at;
     ss >> v >> std::skipws >> c_at;
-    test_eq_impl(v, expected, "v == expected", line);
-    test_eq_impl(c_at, '@', "c_at == @", line);
+    test_impl(!!ss, "Parsing failed", __FILE__, line);
+    test_eq_impl(v, expected, "v == expected", __FILE__, line);
+    test_eq_impl(c_at, '@', "c_at == @", __FILE__, line);
 }
 
 template<typename T, typename CharType>
@@ -166,7 +176,7 @@ void test_parse_fail_impl(std::basic_istringstream<CharType>& ss, int line)
 {
     T v;
     ss >> v;
-    test_eq_impl(ss.fail(), true, "ss.fail()", line);
+    test_eq_impl(ss.fail(), true, "ss.fail()", __FILE__, line);
 }
 
 #define TEST_FMT(manip, value, expected)                                                  \
@@ -278,6 +288,7 @@ void test_parse_fail_impl(std::basic_istringstream<CharType>& ss, int line)
 
 #define TEST_MIN_MAX_POSIX(type)                                                      \
     do {                                                                              \
+        TEST_CONTEXT(#type);                                                          \
         const std::string minval = as_posix_string(std::numeric_limits<type>::min()); \
         const std::string maxval = as_posix_string(std::numeric_limits<type>::max()); \
         TEST_MIN_MAX_FMT(as::posix, type, minval, maxval);                            \
@@ -318,6 +329,7 @@ void test_as_posix(const std::string& e_charset = "UTF-8")
         localization_backend_manager::global(backend);
         for(const std::string name : {"en_US", "ru_RU", "de_DE"}) {
             const std::locale loc = boost::locale::generator{}(name + "." + e_charset);
+            TEST_CONTEXT("Locale " << (name + "." + e_charset));
             TEST_MIN_MAX_POSIX(int16_t);
             TEST_MIN_MAX_POSIX(uint16_t);
 
@@ -368,18 +380,22 @@ void test_manip(std::string e_charset = "UTF-8")
     TEST_MIN_MAX(int16_t, "-32,768", "32,767");
     TEST_MIN_MAX(uint16_t, "0", "65,535");
     TEST_PARSE_FAILS(as::number, "-1", uint16_t);
+    TEST_PARSE_FAILS(as::number, "-32,767", uint16_t);
     if(stdlib_correctly_errors_on_out_of_range_int16())
         TEST_PARSE_FAILS(as::number, "65,535", int16_t);
 
     TEST_MIN_MAX(int32_t, "-2,147,483,648", "2,147,483,647");
     TEST_MIN_MAX(uint32_t, "0", "4,294,967,295");
     TEST_PARSE_FAILS(as::number, "-1", uint32_t);
+    TEST_PARSE_FAILS(as::number, "-2,147,483,647", uint32_t);
     TEST_PARSE_FAILS(as::number, "4,294,967,295", int32_t);
 
     TEST_MIN_MAX(int64_t, "-9,223,372,036,854,775,808", "9,223,372,036,854,775,807");
-    // ICU does not support uint64, but we have a fallback to format it at least
-    TEST_MIN_MAX_FMT(as::number, uint64_t, "0", "18446744073709551615");
+    TEST_MIN_MAX(uint64_t, "0", "18,446,744,073,709,551,615");
     TEST_PARSE_FAILS(as::number, "-1", uint64_t);
+    TEST_PARSE_FAILS(as::number, "-9,223,372,036,854,775,807", uint64_t);
+    TEST_PARSE_FAILS(as::number, "18,446,744,073,709,551,615", int64_t);
+    TEST_PARSE_FAILS(as::number, "18,446,744,073,709,551,616", uint64_t);
 
     TEST_FMT_PARSE_3(as::number, std::left, std::setw(3), 15, "15 ");
     TEST_FMT_PARSE_3(as::number, std::right, std::setw(3), 15, " 15");
@@ -396,23 +412,18 @@ void test_manip(std::string e_charset = "UTF-8")
     TEST_PARSE_FAILS(as::percent, "1", double);
 
     TEST_FMT_PARSE_1(as::currency, 1345, "$1,345.00");
+    TEST_FMT_PARSE_1(as::currency, uint64_t(1345), "$1,345.00");
     TEST_FMT_PARSE_1(as::currency, 1345.34, "$1,345.34");
 
     TEST_PARSE_FAILS(as::currency, "$", double);
 
-#if BOOST_LOCALE_ICU_VERSION >= 402
     TEST_FMT_PARSE_2(as::currency, as::currency_national, 1345, "$1,345.00");
     TEST_FMT_PARSE_2(as::currency, as::currency_national, 1345.34, "$1,345.34");
-    TEST_FMT_PARSE_2(as::currency, as::currency_iso, 1345, get_icu_currency_iso(1345));
-    TEST_FMT_PARSE_2(as::currency, as::currency_iso, 1345.34, get_icu_currency_iso(1345.34));
-#endif
+    TEST_FMT_PARSE_2(as::currency, as::currency_iso, 1345, get_ICU_currency_iso(1345));
+    TEST_FMT_PARSE_2(as::currency, as::currency_iso, 1345.34, get_ICU_currency_iso(1345.34));
+
     TEST_FMT_PARSE_1(as::spellout, 10, "ten");
-#if 402 <= BOOST_LOCALE_ICU_VERSION && BOOST_LOCALE_ICU_VERSION < 408
-    if(e_charset == "UTF-8")
-        TEST_FMT(as::ordinal, 1, "1\xcb\xa2\xe1\xb5\x97"); // 1st with st as ligatures
-#else
     TEST_FMT(as::ordinal, 1, "1st");
-#endif
 
     time_t a_date = 3600 * 24 * (31 + 4); // Feb 5th
     time_t a_time = 3600 * 15 + 60 * 33;  // 15:33:05
@@ -424,6 +435,7 @@ void test_manip(std::string e_charset = "UTF-8")
     TEST_FMT_PARSE_3_2(as::date, as::date_medium, as::gmt, a_datetime, "Feb 5, 1970", a_date);
     TEST_FMT_PARSE_3_2(as::date, as::date_long, as::gmt, a_datetime, "February 5, 1970", a_date);
     TEST_FMT_PARSE_3_2(as::date, as::date_full, as::gmt, a_datetime, "Thursday, February 5, 1970", a_date);
+    TEST_FMT_PARSE_2_2(as::date, as::gmt, uint64_t(a_datetime), "Feb 5, 1970", uint64_t(a_date));
 
     TEST_PARSE_FAILS(as::date >> as::date_short, "aa/bb/cc", double);
 
@@ -444,11 +456,9 @@ void test_manip(std::string e_charset = "UTF-8")
 
     TEST_PARSE(as::time >> as::time_long >> as::gmt, "3:33:13 PM GMT", a_time + a_timesec);
     TEST_FMT_PARSE_3_2(as::time, as::time_long, as::gmt, a_datetime, icu_time_long, a_time + a_timesec);
-    // ICU 4.8.0 has a bug which makes parsing the full time fail when anything follows the time zone
-#if BOOST_LOCALE_ICU_VERSION_EXACT != 40800
+
     TEST_PARSE(as::time >> as::time_full >> as::gmt, "3:33:13 PM GMT+00:00", a_time + a_timesec);
     TEST_FMT_PARSE_3_2(as::time, as::time_full, as::gmt, a_datetime, icu_time_full, a_time + a_timesec);
-#endif
     TEST_PARSE_FAILS(as::time, "AM", double);
 
     icu_time_def = get_ICU_time(as::time, a_datetime, "GMT+01:00");
@@ -478,7 +488,6 @@ void test_manip(std::string e_charset = "UTF-8")
                        a_datetime,
                        icu_time_long,
                        a_time + a_timesec);
-#if !(BOOST_LOCALE_ICU_VERSION == 308 && defined(__CYGWIN__)) // Known failure due to ICU issue
     TEST_PARSE(as::time >> as::time_full >> as::time_zone("GMT+01:00"), "4:33:13 PM GMT+01:00", a_time + a_timesec);
     TEST_FMT_PARSE_3_2(as::time,
                        as::time_full,
@@ -486,7 +495,6 @@ void test_manip(std::string e_charset = "UTF-8")
                        a_datetime,
                        icu_time_full,
                        a_time + a_timesec);
-#endif
 
     const std::string icu_def = get_ICU_datetime(as::time, a_datetime);
     const std::string icu_short = get_ICU_datetime(as::time_short, a_datetime);
@@ -507,13 +515,11 @@ void test_manip(std::string e_charset = "UTF-8")
                "February 5, 1970 3:33:13 PM GMT",
                a_datetime);
     TEST_FMT_PARSE_4(as::datetime, as::date_long, as::time_long, as::gmt, a_datetime, icu_long);
-#if BOOST_LOCALE_ICU_VERSION_EXACT != 40800
-    // ICU 4.8.0 has a bug which makes parsing the full time fail when anything follows the time zone
+
     TEST_PARSE(as::datetime >> as::date_full >> as::time_full >> as::gmt,
                "Thursday, February 5, 1970 3:33:13 PM Greenwich Mean Time",
                a_datetime);
     TEST_FMT_PARSE_4(as::datetime, as::date_full, as::time_full, as::gmt, a_datetime, icu_full);
-#endif
 
     const std::pair<char, std::string> mark_test_cases[] = {
       std::make_pair('a', "Thu"),
@@ -620,7 +626,7 @@ void test_format_class_impl(const std::string& fmt_string,
     format_type fmt(std::basic_string<CharType>(fmt_string.begin(), fmt_string.end()));
     fmt % value;
     std::basic_string<CharType> expected_str_loc(to_correct_string<CharType>(expected_str, loc));
-    test_eq_impl(fmt.str(loc), expected_str_loc, ("Format: " + fmt_string).c_str(), line);
+    test_eq_impl(fmt.str(loc), expected_str_loc, ("Format: " + fmt_string).c_str(), __FILE__, line);
 }
 
 template<typename CharType>
@@ -710,6 +716,7 @@ void test_format_class(std::string charset = "UTF-8")
     TEST_EQ(do_format<CharType>(loc, "{1}{3}{2}", "hello", "world"), ascii_to<CharType>("helloworld"));
     TEST_EQ(do_format<CharType>(loc, "{1}"), ascii_to<CharType>(""));
     // Invalid indices are ignored
+    TEST_EQ(do_format<CharType>(loc, "b{}e"), ascii_to<CharType>("be"));
     TEST_EQ(do_format<CharType>(loc, "b{0}e", 1), ascii_to<CharType>("be"));
     TEST_EQ(do_format<CharType>(loc, "b{-1}e", 1), ascii_to<CharType>("be"));
     TEST_EQ(do_format<CharType>(loc, "b{1.x}e"), ascii_to<CharType>("be"));
@@ -723,9 +730,20 @@ void test_format_class(std::string charset = "UTF-8")
     TEST_EQ(do_format<CharType>(loc, "End}}"), ascii_to<CharType>("End}"));
     // ...and twice when another trailing brace is added
     TEST_EQ(do_format<CharType>(loc, "End}}}"), ascii_to<CharType>("End}}"));
+    // Escaped braces
+    TEST_EQ(do_format<CharType>(loc, "Unexpected {{ in file"), ascii_to<CharType>("Unexpected { in file"));
+    TEST_EQ(do_format<CharType>(loc, "Unexpected {{ in {1}#{2}", "f", 7), ascii_to<CharType>("Unexpected { in f#7"));
+    TEST_EQ(do_format<CharType>(loc, "Unexpected }} in file"), ascii_to<CharType>("Unexpected } in file"));
+    TEST_EQ(do_format<CharType>(loc, "Unexpected }} in {1}#{2}", "f", 9), ascii_to<CharType>("Unexpected } in f#9"));
 
     // format with multiple types
     TEST_EQ(do_format<CharType>(loc, "{1} {2}", "hello", 2), ascii_to<CharType>("hello 2"));
+
+    // format with locale & encoding
+    {
+        const auto expected = boost::locale::conv::utf_to_utf<CharType>("10,00\xC2\xA0€");
+        TEST_EQ(do_format<CharType>(loc, "{1,cur,locale=de_DE.UTF-8}", 10), expected);
+    }
 
 #define TEST_FORMAT_CLS(fmt_string, value, expected_str) \
     test_format_class_impl<CharType>(fmt_string, value, expected_str, loc, __LINE__)
@@ -733,40 +751,32 @@ void test_format_class(std::string charset = "UTF-8")
     // Test different types and modifiers
     TEST_FORMAT_CLS("{1}", 1200.1, "1200.1");
     TEST_FORMAT_CLS("Test {1,num}", 1200.1, "Test 1,200.1");
-    TEST_FORMAT_CLS("{{}} {1,number}", 1200.1, "{} 1,200.1");
+    TEST_FORMAT_CLS("{{1}} {1,number}", 3200.4, "{1} 3,200.4");
+    // placeholder in escaped braces, see issue #194
+    TEST_FORMAT_CLS("{{{1}}}", "num", "{num}");
+    TEST_FORMAT_CLS("{{{1}}}", 1200.1, "{1200.1}");
+
     TEST_FORMAT_CLS("{1,num=sci,p=3}", 13.1, "1.310E1");
     TEST_FORMAT_CLS("{1,num=scientific,p=3}", 13.1, "1.310E1");
     TEST_FORMAT_CLS("{1,num=fix,p=3}", 13.1, "13.100");
     TEST_FORMAT_CLS("{1,num=fixed,p=3}", 13.1, "13.100");
+    TEST_FORMAT_CLS("{1,num=hex}", 0x1234, "1234");
+    TEST_FORMAT_CLS("{1,num=oct}", 42, "52");
     TEST_FORMAT_CLS("{1,<,w=3,num}", -1, "-1 ");
     TEST_FORMAT_CLS("{1,>,w=3,num}", 1, "  1");
     TEST_FORMAT_CLS("{per,1}", 0.1, "10%");
     TEST_FORMAT_CLS("{percent,1}", 0.1, "10%");
     TEST_FORMAT_CLS("{1,cur}", 1234, "$1,234.00");
     TEST_FORMAT_CLS("{1,currency}", 1234, "$1,234.00");
-    if(charset == "UTF-8") {
-#if BOOST_LOCALE_ICU_VERSION >= 400
+    if(charset == "UTF-8")
         TEST_FORMAT_CLS("{1,cur,locale=de_DE}", 10, "10,00\xC2\xA0€");
-#else
-        TEST_FORMAT_CLS("{1,cur,locale=de_DE}", 10, "10,00 €"); // LCOV_EXCL_LINE
-#endif
-    }
-#if BOOST_LOCALE_ICU_VERSION >= 402
     TEST_FORMAT_CLS("{1,cur=nat}", 1234, "$1,234.00");
     TEST_FORMAT_CLS("{1,cur=national}", 1234, "$1,234.00");
-    TEST_FORMAT_CLS("{1,cur=iso}", 1234, get_icu_currency_iso(1234));
-#endif
+    TEST_FORMAT_CLS("{1,cur=iso}", 1234, get_ICU_currency_iso(1234));
     TEST_FORMAT_CLS("{1,spell}", 10, "ten");
     TEST_FORMAT_CLS("{1,spellout}", 10, "ten");
-#if 402 <= BOOST_LOCALE_ICU_VERSION && BOOST_LOCALE_ICU_VERSION < 408
-    if(charset == "UTF-8") {
-        TEST_FORMAT_CLS("{1,ord}", 1, "1\xcb\xa2\xe1\xb5\x97");
-        TEST_FORMAT_CLS("{1,ordinal}", 1, "1\xcb\xa2\xe1\xb5\x97");
-    }
-#else
     TEST_FORMAT_CLS("{1,ord}", 1, "1st");
     TEST_FORMAT_CLS("{1,ordinal}", 1, "1st");
-#endif
 
     // formatted time
     {
@@ -803,11 +813,17 @@ void test_format_class(std::string charset = "UTF-8")
     const std::string icu_time_medium = get_ICU_time(as::time_medium, a_datetime);
     const std::string icu_time_long = get_ICU_time(as::time_long, a_datetime);
     const std::string icu_time_full = get_ICU_time(as::time_full, a_datetime);
+    const std::string icu_date_short = get_ICU_date(as::date_short, a_datetime);
+    const std::string icu_date_medium = get_ICU_date(as::date_medium, a_datetime);
+    const std::string icu_date_long = get_ICU_date(as::date_long, a_datetime);
+    const std::string icu_date_full = get_ICU_date(as::date_full, a_datetime);
     const std::string icu_datetime_def = get_ICU_datetime(as::time, a_datetime);
     const std::string icu_datetime_short = get_ICU_datetime(as::time_short, a_datetime);
     const std::string icu_datetime_medium = get_ICU_datetime(as::time_medium, a_datetime);
     const std::string icu_datetime_long = get_ICU_datetime(as::time_long, a_datetime);
     const std::string icu_datetime_full = get_ICU_datetime(as::time_full, a_datetime);
+    // Sanity check
+    TEST_EQ(icu_date_full, "Thursday, February 5, 1970");
 
     TEST_FORMAT_CLS("{1,date,gmt}", a_datetime, "Feb 5, 1970");
     TEST_FORMAT_CLS("{1,time,gmt}", a_datetime, icu_time_def);
@@ -820,8 +836,16 @@ void test_format_class(std::string charset = "UTF-8")
     TEST_FORMAT_CLS("{1,time=m,gmt}", a_datetime, icu_time_medium);
     TEST_FORMAT_CLS("{1,time=long,gmt}", a_datetime, icu_time_long);
     TEST_FORMAT_CLS("{1,time=l,gmt}", a_datetime, icu_time_long);
-    TEST_FORMAT_CLS("{1,date=full,gmt}", a_datetime, "Thursday, February 5, 1970");
-    TEST_FORMAT_CLS("{1,date=f,gmt}", a_datetime, "Thursday, February 5, 1970");
+    TEST_FORMAT_CLS("{1,time=full,gmt}", a_datetime, icu_time_full);
+    TEST_FORMAT_CLS("{1,time=f,gmt}", a_datetime, icu_time_full);
+    TEST_FORMAT_CLS("{1,date=short,gmt}", a_datetime, icu_date_short);
+    TEST_FORMAT_CLS("{1,date=s,gmt}", a_datetime, icu_date_short);
+    TEST_FORMAT_CLS("{1,date=medium,gmt}", a_datetime, icu_date_medium);
+    TEST_FORMAT_CLS("{1,date=m,gmt}", a_datetime, icu_date_medium);
+    TEST_FORMAT_CLS("{1,date=long,gmt}", a_datetime, icu_date_long);
+    TEST_FORMAT_CLS("{1,date=l,gmt}", a_datetime, icu_date_long);
+    TEST_FORMAT_CLS("{1,date=full,gmt}", a_datetime, icu_date_full);
+    TEST_FORMAT_CLS("{1,date=f,gmt}", a_datetime, icu_date_full);
     // Handle timezones and reuse of arguments
     const std::string icu_time_short2 = get_ICU_time(as::time_short, a_datetime, "GMT+01:00");
     TEST_FORMAT_CLS("{1,time=s,gmt};{1,time=s,timezone=GMT+01:00}", a_datetime, icu_time_short + ";" + icu_time_short2);
@@ -839,6 +863,56 @@ void test_format_class(std::string charset = "UTF-8")
     TEST_FORMAT_CLS("{1,gmt,ftime='%D'}", a_datetime, "12/31/13");
 }
 
+/// Test formatting and parsing of uint64_t values that are not natively supported by ICU.
+/// They use a custom code path which gets exercised by this.
+void test_uint64_format()
+{
+#ifdef BOOST_LOCALE_WITH_ICU
+    std::set<std::string> tested_langs;
+    int32_t count;
+    auto* cur_locale = icu::Locale::getAvailableLocales(count);
+    constexpr uint64_t value = std::numeric_limits<int64_t>::max() + uint64_t(3);
+    const std::string posix_value = as_posix_string(value);
+    constexpr int32_t short_value = std::numeric_limits<int32_t>::max();
+    const std::string posix_short_value = as_posix_string(short_value);
+    boost::locale::generator g;
+    const std::string utf8 = ".UTF-8";
+    // Test with each language supported by ICU to ensure the implementation really
+    // is independent of the language and doesn't fail e.g. for different separators.
+    for(int i = 0; i < count; i++, cur_locale++) {
+        if(!tested_langs.insert(cur_locale->getLanguage()).second)
+            continue;
+        TEST_CONTEXT(cur_locale->getName());
+        UErrorCode err{};
+        std::unique_ptr<icu::NumberFormat> fmt{icu::NumberFormat::createInstance(*cur_locale, err)};
+        icu::UnicodeString s;
+        fmt->format(short_value, s, nullptr, err);
+        if(U_FAILURE(err))
+            continue; // LCOV_EXCL_LINE
+        const std::string icu_value = boost::locale::conv::utf_to_utf<char>(s.getBuffer(), s.getBuffer() + s.length());
+        std::stringstream ss;
+        ss.imbue(g(cur_locale->getName() + utf8));
+        ss << boost::locale::as::number;
+        // Sanity check
+        ss << short_value;
+        TEST_EQ(ss.str(), icu_value);
+
+        // Assumption: Either both the int32 and uint64 values are in POSIX format, or neither are
+        // This is the case if separators are used and/or numbers are not ASCII
+        // All languages likely use separators so not running into the POSIX case is OK.
+        empty_stream(ss) << value;
+        if(icu_value == posix_short_value)
+            TEST_EQ(ss.str(), posix_value); // LCOV_EXCL_LINE
+        else
+            TEST_NE(ss.str(), posix_value);
+
+        uint64_t parsed_value{};
+        if TEST(ss >> parsed_value)
+            TEST_EQ(parsed_value, value);
+    }
+#endif
+}
+
 BOOST_LOCALE_DISABLE_UNREACHABLE_CODE_WARNING
 void test_main(int argc, char** argv)
 {
@@ -849,6 +923,8 @@ void test_main(int argc, char** argv)
     std::cout << "ICU is not build... Skipping\n";
     return;
 #endif
+    test_uint64_format();
+
     boost::locale::time_zone::global("GMT+4:00");
     std::cout << "Testing char, UTF-8" << std::endl;
     test_manip<char>();
@@ -872,6 +948,9 @@ void test_main(int argc, char** argv)
     test_manip<char32_t>();
     test_format_class<char32_t>();
 #endif
+
+    test_format_large_number();
+    test_parse_multi_number();
 }
 
 // boostinspect:noascii

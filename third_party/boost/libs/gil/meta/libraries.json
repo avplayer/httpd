@@ -1,0 +1,24 @@
+{
+    "key": "gil",
+    "name": "GIL",
+    "authors": [
+        "Lubomir Bourdev",
+        "Hailin Jin",
+        "Christian Henning"
+    ],
+    "description": "(C++14) Generic Image Library",
+    "category": [
+        "Algorithms",
+        "Containers",
+        "Generic",
+        "Image-processing",
+        "Iterators"
+    ],
+    "maintainers": [
+        "Samuel Debionne",
+        "Pranam Lashkari <plashkari628 -at- gmail.com>",
+        "Mateusz Loskot <mateusz -at- loskot.net>",
+        "Stefan Seefeld <stefan -at- seefeld.name>"
+    ],
+    "cxxstd": "14"
+}

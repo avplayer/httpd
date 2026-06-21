@@ -1,5 +1,5 @@
 ////
-Copyright 2018-2022 Peter Dimov
+Copyright 2018-2025 Peter Dimov
 Distributed under the Boost Software License, Version 1.0.
 https://www.boost.org/LICENSE_1_0.txt
 ////
@@ -7,6 +7,48 @@ https://www.boost.org/LICENSE_1_0.txt
 [#changes]
 # Revision History
 :idprefix:
+
+## Changes in Boost 1.91
+
+* The return type of `operator|(result<T&>, U)` has been changed to non-reference.
+* Pointers to members in `r & f` are now supported (by using `boost::compat::invoke`).
+* A CMake config file is now installed, even though the library is header-only. This
+  avoids breaking third-party `CMakeLists.txt` files that contain
+  `find_package(Boost COMPONENTS system ...)`.
+* `error_code` is now even more `constexpr` under {cpp}20 and later.
+* Added `unsafe_value` to `result`.
+* Changed `result<>::operator*` and `result<>::operator\->` to throw when `!has_value()`,
+  instead of having that as a precondition. The old behavior is now spelled `unsafe_value()`.
+* Added `boost/system/unwrap_and_invoke.hpp`.
+
+## Changes in Boost 1.89
+
+* The stub compiled library has been removed; System has been header-only since release 1.69.
++
+This may affect `CMakeLists.txt` files containing `find_package(Boost COMPONENTS system ...)`.
+The easiest fix is to just remove `system` from the list of components as it's no longer required.
+If compatibility with Boost releases earlier than 1.69 is to be preserved, one can use
+`find_package(Boost COMPONENTS ... OPTIONAL_COMPONENTS system)`.
+
+## Changes in Boost 1.86
+
+* Support `result<T> & fv`, where `fv` returns `void`.
+* Support `result<void> &= fv;`, where `fv` returns `void`.
+
+## Changes in Boost 1.85
+
+* {cpp}03 is no longer supported; a {cpp}11 compiler is required. (This includes GCC 4.8 or later, and MSVC 14.0 (VS 2015) or later.)
+* The deprecated header `boost/system/cygwin_error.hpp` has been removed.
+* The original and obsolete (32 bit) MinGW is no longer supported. MinGW-w64 (both 64 and 32 bit) is still supported.
+* `operator&` now works for `result<void>` (by way of taking a nullary function.)
+* Added `operator|=` for `result`.
+
+## Changes in Boost 1.84
+
+* Added support for `result<U&, E>`.
+* Added `operator|` for `result`.
+* Added `operator&` for `result`.
+* Added `operator&=` for `result`.
 
 ## Changes in Boost 1.81
 

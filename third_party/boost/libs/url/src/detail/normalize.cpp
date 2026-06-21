@@ -8,18 +8,17 @@
 // Official repository: https://github.com/boostorg/url
 //
 
-#ifndef BOOST_URL_DETAIL_IMPL_NORMALIZE_IPP
-#define BOOST_URL_DETAIL_IMPL_NORMALIZE_IPP
 
 #include <boost/url/detail/config.hpp>
 #include <boost/url/decode_view.hpp>
 #include <boost/url/detail/decode.hpp>
 #include <boost/url/segments_encoded_view.hpp>
-#include <boost/url/detail/normalize.hpp>
 #include <boost/url/grammar/ci_string.hpp>
+#include <boost/url/grammar/lut_chars.hpp>
 #include <boost/assert.hpp>
 #include <boost/core/ignore_unused.hpp>
 #include <cstring>
+#include <boost/url/detail/normalize.hpp>
 
 namespace boost {
 namespace urls {
@@ -66,6 +65,60 @@ compare_encoded(
             return -1;
         if (c1 < c0)
             return 1;
+    }
+    n0 += detail::decode_bytes_unsafe(lhs);
+    n1 += detail::decode_bytes_unsafe(rhs);
+    if (n0 == n1)
+        return 0;
+    if (n0 < n1)
+        return -1;
+    return 1;
+}
+
+int
+compare_encoded_query(
+    core::string_view lhs,
+    core::string_view rhs) noexcept
+{
+    static constexpr
+    grammar::lut_chars
+    query_compare_exception_lut = "&=+";
+
+    std::size_t n0 = 0;
+    std::size_t n1 = 0;
+    char c0 = 0;
+    char c1 = 0;
+    while(
+        !lhs.empty() &&
+        !rhs.empty())
+    {
+        bool const lhs_was_decoded = lhs.front() != '%';
+        bool const rhs_was_decoded = rhs.front() != '%';
+        pop_encoded_front(lhs, c0, n0);
+        pop_encoded_front(rhs, c1, n1);
+        if (c0 < c1)
+            return -1;
+        if (c1 < c0)
+            return 1;
+        // The decoded chars are the same, but
+        // are these query exceptions that have
+        // different meanings when decoded?
+        if (query_compare_exception_lut(c0))
+        {
+            // If so, we only continue if both
+            // chars were decoded or encoded
+            // the same way.
+            if (lhs_was_decoded == rhs_was_decoded)
+                continue;
+            // Otherwise, we return a value != 0
+            // because these chars are not equal.
+            // If rhs was the decoded one, it contains
+            // an ascii char higher than '%'
+            if (rhs_was_decoded)
+                return -1;
+            else
+                return 1;
+        }
     }
     n0 += detail::decode_bytes_unsafe(lhs);
     n1 += detail::decode_bytes_unsafe(rhs);
@@ -192,100 +245,71 @@ ci_digest(
     }
 }
 
-std::size_t
-path_starts_with(
-    core::string_view lhs,
-    core::string_view rhs) noexcept
-{
-    auto consume_one = [](
-        core::string_view::iterator& it,
-        char &c)
-    {
-        if(*it != '%')
-        {
-            c = *it;
-            ++it;
-            return;
-        }
-        detail::decode_unsafe(
-            &c,
-            &c + 1,
-            core::string_view(it, 3));
-        if (c != '/')
-        {
-            it += 3;
-            return;
-        }
-        c = *it;
-        ++it;
-    };
+/* Check if a string ends with the specified suffix (decoded comparison)
 
-    auto it0 = lhs.begin();
-    auto it1 = rhs.begin();
-    auto end0 = lhs.end();
-    auto end1 = rhs.end();
-    char c0 = 0;
-    char c1 = 0;
-    while (
-        it0 < end0 &&
-        it1 < end1)
-    {
-        consume_one(it0, c0);
-        consume_one(it1, c1);
-        if (c0 != c1)
-            return 0;
-    }
-    if (it1 == end1)
-        return it0 - lhs.begin();
-    return 0;
-}
+   This function determines if a string ends with the specified suffix
+   when the string and suffix are compared after percent-decoding.
 
+   @param str The string to check (percent-encoded)
+   @param suffix The suffix to check for (percent-decoded)
+   @return The number of encoded chars consumed in the string
+ */
 std::size_t
 path_ends_with(
-    core::string_view lhs,
-    core::string_view rhs) noexcept
+    core::string_view str,
+    core::string_view suffix) noexcept
 {
+    BOOST_ASSERT(!str.empty());
+    BOOST_ASSERT(!suffix.empty());
+    BOOST_ASSERT(!suffix.contains("%2F"));
+    BOOST_ASSERT(!suffix.contains("%2f"));
     auto consume_last = [](
         core::string_view::iterator& it,
         core::string_view::iterator& end,
         char& c)
     {
+        BOOST_ASSERT(end > it);
+        BOOST_ASSERT(it != end);
         if ((end - it) < 3 ||
             *(std::prev(end, 3)) != '%')
         {
             c = *--end;
-            return;
+            return false;
         }
         detail::decode_unsafe(
             &c,
             &c + 1,
             core::string_view(std::prev(
                 end, 3), 3));
-        if (c != '/')
-        {
-            end -= 3;
-            return;
-        }
-        c = *--end;
+        end -= 3;
+        return true;
     };
 
-    auto it0 = lhs.begin();
-    auto it1 = rhs.begin();
-    auto end0 = lhs.end();
-    auto end1 = rhs.end();
+    auto it0 = str.begin();
+    auto end0 = str.end();
+    auto it1 = suffix.begin();
+    auto end1 = suffix.end();
     char c0 = 0;
     char c1 = 0;
     while(
         it0 < end0 &&
         it1 < end1)
     {
-        consume_last(it0, end0, c0);
+        bool const is_encoded = consume_last(it0, end0, c0);
+        // The suffix never contains an encoded slash (%2F), and a decoded
+        // slash is not equivalent to an encoded slash
+        if (is_encoded && c0 == '/')
+            return 0;
         consume_last(it1, end1, c1);
         if (c0 != c1)
             return 0;
     }
-    if (it1 == end1)
-        return lhs.end() - end0;
+    bool const consumed_suffix = it1 == end1;
+    if (consumed_suffix)
+    {
+        std::size_t const consumed_encoded = str.end() - end0;
+        return consumed_encoded;
+    }
     return 0;
 }
 
@@ -293,13 +317,14 @@ std::size_t
 remove_dot_segments(
     char* dest0,
     char const* end,
-    core::string_view s) noexcept
+    core::string_view input) noexcept
 {
     // 1. The input buffer `s` is initialized with
     // the now-appended path components and the
     // output buffer `dest0` is initialized to
     // the empty string.
     char* dest = dest0;
+    bool const is_absolute = input.starts_with('/');
 
     // Step 2 is a loop through 5 production rules:
     // https://www.rfc-editor.org/rfc/rfc3986#section-5.2.4
@@ -348,30 +373,37 @@ remove_dot_segments(
         n = 0;
         for (char c: dots)
         {
-            if (str.empty())
-            {
-                n = 0;
-                return false;
-            }
-            else if (str.starts_with(c))
+            if (str.starts_with(c))
             {
                 str.remove_prefix(1);
                 ++n;
+                continue;
             }
-            else if (str.size() > 2 &&
-                     str[0] == '%' &&
-                     str[1] == '2' &&
-                     (str[2] == 'e' ||
-                      str[2] == 'E'))
-            {
-                str.remove_prefix(3);
-                n += 3;
-            }
-            else
-            {
-                n = 0;
-                return false;
-            }
+
+            // In the general case, we would need to
+            // check if the next char is an encoded
+            // dot.
+            // However, an encoded dot in `str`
+            // would have already been decoded in
+            // url_base::normalize_path().
+            // This needs to be undone if
+            // `remove_dot_segments` is used in a
+            // different context.
+            // if (str.size() > 2 &&
+            //     c == '.'
+            //     &&
+            //     str[0] == '%' &&
+            //     str[1] == '2' &&
+            //     (str[2] == 'e' ||
+            //      str[2] == 'E'))
+            // {
+            //     str.remove_prefix(3);
+            //     n += 3;
+            //     continue;
+            // }
+
+            n = 0;
+            return false;
         }
         return true;
     };
@@ -386,45 +418,48 @@ remove_dot_segments(
 
     // Rule A
     std::size_t n;
-    while (!s.empty())
+    while (!input.empty())
     {
-        if (dot_starts_with(s, "../", n))
+        if (dot_starts_with(input, "../", n))
         {
             // Errata 4547
             append(dest, end, "../");
-            s.remove_prefix(n);
+            input.remove_prefix(n);
             continue;
         }
-        else if (!dot_starts_with(s, "./", n))
+        else if (!dot_starts_with(input, "./", n))
         {
             break;
         }
-        s.remove_prefix(n);
+        input.remove_prefix(n);
     }
 
     // Rule D
-    if( dot_equal(s, "."))
+    if( dot_equal(input, "."))
     {
-        s = {};
+        input = {};
     }
-    else if( dot_equal(s, "..") )
+    else if( dot_equal(input, "..") )
     {
         // Errata 4547
         append(dest, end, "..");
-        s = {};
+        input = {};
     }
 
     // 2. While the input buffer is not empty,
     // loop as follows:
-    while (!s.empty())
+    while (!input.empty())
     {
         // Rule B
-        if (dot_starts_with(s, "/./", n))
+        bool const is_dot_seg = dot_starts_with(input, "/./", n);
+        if (is_dot_seg)
         {
-            s.remove_prefix(n - 1);
+            input.remove_prefix(n - 1);
             continue;
         }
-        if (dot_equal(s, "/."))
+
+        bool const is_final_dot_seg = dot_equal(input, "/.");
+        if (is_final_dot_seg)
         {
             // We can't remove "." from a core::string_view
             // So what we do here is equivalent to
@@ -433,73 +468,141 @@ remove_dot_segments(
             // iteration, which would append this
             // '/' to  the output, as required by
             // Rule E
-            append(dest, end, s.substr(0, 1));
-            s = {};
+            append(dest, end, input.substr(0, 1));
+            input = {};
             break;
         }
 
         // Rule C
-        if (dot_starts_with(s, "/../", n))
+        bool const is_dotdot_seg = dot_starts_with(input, "/../", n);
+        if (is_dotdot_seg)
         {
-            std::size_t p = core::string_view(
-                dest0, dest - dest0).find_last_of('/');
-            if (p != core::string_view::npos)
+            core::string_view cur_out(dest0, dest - dest0);
+            std::size_t p = cur_out.find_last_of('/');
+            bool const has_multiple_segs = p != core::string_view::npos;
+            if (has_multiple_segs)
             {
                 // output has multiple segments
                 // "erase" [p, end] if not "/.."
                 core::string_view last_seg(dest0 + p, dest - (dest0 + p));
-                if (!dot_equal(last_seg, "/.."))
+                bool const prev_is_dotdot_seg = dot_equal(last_seg, "/..");
+                if (!prev_is_dotdot_seg)
+                {
                     dest = dest0 + p;
+                }
                 else
+                {
                     append(dest, end, "/..");
+                }
             }
             else if (dest0 != dest)
             {
-                // one segment in the output
-                dest = dest0;
-                s.remove_prefix(1);
+                // Only one segment in the output: remove it
+                core::string_view last_seg(dest0, dest - dest0);
+                bool const prev_is_dotdot_seg = dot_equal(last_seg, "..");
+                if (!prev_is_dotdot_seg)
+                {
+                    dest = dest0;
+                    if (!is_absolute)
+                    {
+                        input.remove_prefix(1);
+                    }
+                }
+                else
+                {
+                    append(dest, end, "/..");
+                }
             }
             else
             {
-                // output is empty
-                append(dest, end, "/..");
+                // Output is empty
+                if (is_absolute)
+                {
+                    append(dest, end, "/..");
+                }
+                else
+                {
+                    // AFREITAS: Although we have no formal proof
+                    // for that, the output can't be relative
+                    // and empty at this point because relative
+                    // paths will fall in the `dest0 != dest`
+                    // case above of this rule C and then the
+                    // general case of rule E for "..".
+                    append(dest, end, "..");
+                }
             }
-            s.remove_prefix(n-1);
+            input.remove_prefix(n - 1);
             continue;
         }
-        if (dot_equal(s, "/.."))
+
+        bool const is_final_dotdot_seg = dot_equal(input, "/..");
+        if (is_final_dotdot_seg)
         {
-            std::size_t p = core::string_view(
-                dest0, dest - dest0).find_last_of('/');
-            if (p != core::string_view::npos)
+            core::string_view cur_out(dest0, dest - dest0);
+            std::size_t p = cur_out.find_last_of('/');
+            bool const has_multiple_segs = p != core::string_view::npos;
+            if (has_multiple_segs)
             {
-                // erase [p, end]
-                dest = dest0 + p;
-                append(dest, end, "/");
+                // output has multiple segments
+                // "erase" [p, end] if not "/.."
+                core::string_view last_seg(dest0 + p, dest - (dest0 + p));
+                bool const prev_is_dotdot_seg = dot_equal(last_seg, "/..");
+                if (!prev_is_dotdot_seg)
+                {
+                    dest = dest0 + p;
+                    append(dest, end, "/");
+                }
+                else
+                {
+                    append(dest, end, "/..");
+                }
             }
             else if (dest0 != dest)
             {
-                dest = dest0;
+                // Only one segment in the output: remove it
+                core::string_view last_seg(dest0, dest - dest0);
+                bool const prev_is_dotdot_seg = dot_equal(last_seg, "..");
+                if (!prev_is_dotdot_seg) {
+                    dest = dest0;
+                }
+                else
+                {
+                    append(dest, end, "/..");
+                }
             }
             else
             {
-                append(dest, end, "/..");
+                // Output is empty: append dotdot
+                if (is_absolute)
+                {
+                    append(dest, end, "/..");
+                }
+                else
+                {
+                    // AFREITAS: Although we have no formal proof
+                    // for that, the output can't be relative
+                    // and empty at this point because relative
+                    // paths will fall in the `dest0 != dest`
+                    // case above of this rule C and then the
+                    // general case of rule E for "..".
+                    append(dest, end, "..");
+                }
             }
-            s = {};
+            input = {};
             break;
         }
 
         // Rule E
-        std::size_t p = s.find_first_of('/', 1);
+        std::size_t p = input.find_first_of('/', 1);
         if (p != core::string_view::npos)
         {
-            append(dest, end, s.substr(0, p));
-            s.remove_prefix(p);
+            append(dest, end, input.substr(0, p));
+            input.remove_prefix(p);
         }
         else
         {
-            append(dest, end, s);
-            s = {};
+            append(dest, end, input);
+            input = {};
         }
     }
 
@@ -534,32 +637,32 @@ path_pop_back( core::string_view& s )
 
 void
 pop_last_segment(
-    core::string_view& s,
-    core::string_view& c,
+    core::string_view& str,
+    core::string_view& seg,
     std::size_t& level,
-    bool r) noexcept
+    bool remove_unmatched) noexcept
 {
-    c = {};
+    seg = {};
     std::size_t n = 0;
-    while (!s.empty())
+    while (!str.empty())
     {
         // B.  if the input buffer begins with a
         // prefix of "/./" or "/.", where "." is
         // a complete path segment, then replace
         // that prefix with "/" in the input
         // buffer; otherwise,
-        n = detail::path_ends_with(s, "/./");
+        n = detail::path_ends_with(str, "/./");
         if (n)
         {
-            c = s.substr(s.size() - n);
-            s.remove_suffix(n);
+            seg = str.substr(str.size() - n);
+            str.remove_suffix(n);
             continue;
         }
-        n = detail::path_ends_with(s, "/.");
+        n = detail::path_ends_with(str, "/.");
         if (n)
         {
-            c = s.substr(s.size() - n, 1);
-            s.remove_suffix(n);
+            seg = str.substr(str.size() - n, 1);
+            str.remove_suffix(n);
             continue;
         }
 
@@ -571,19 +674,19 @@ pop_last_segment(
         // segment and its preceding "/"
         // (if any) from the output buffer
         // otherwise,
-        n = detail::path_ends_with(s, "/../");
+        n = detail::path_ends_with(str, "/../");
         if (n)
         {
-            c = s.substr(s.size() - n);
-            s.remove_suffix(n);
+            seg = str.substr(str.size() - n);
+            str.remove_suffix(n);
             ++level;
             continue;
         }
-        n = detail::path_ends_with(s, "/..");
+        n = detail::path_ends_with(str, "/..");
         if (n)
         {
-            c = s.substr(s.size() - n);
-            s.remove_suffix(n);
+            seg = str.substr(str.size() - n);
+            str.remove_suffix(n);
             ++level;
             continue;
         }
@@ -595,64 +698,71 @@ pop_last_segment(
         // characters up to, but not including,
         // the next "/" character or the end of
         // the input buffer.
-        std::size_t p = s.size() > 1
-            ? s.find_last_of('/', s.size() - 2)
+        std::size_t p = str.size() > 1
+            ? str.find_last_of('/', str.size() - 2)
             : core::string_view::npos;
         if (p != core::string_view::npos)
         {
-            c = s.substr(p + 1);
-            s.remove_suffix(c.size());
+            seg = str.substr(p + 1);
+            str.remove_suffix(seg.size());
         }
         else
         {
-            c = s;
-            s = {};
+            seg = str;
+            str = {};
         }
 
         if (level == 0)
             return;
-        if (!s.empty())
+        if (!str.empty())
             --level;
     }
     // we still need to skip n_skip + 1
     // but the string is empty
-    if (r && level)
+    if (remove_unmatched && level)
     {
-        c = "/";
+        seg = "/";
         level = 0;
         return;
     }
     else if (level)
     {
-        if (c.empty())
-            c = "/..";
+        if (!seg.empty())
+        {
+            seg = "/../";
+        }
         else
-            c = "/../";
+        {
+            // AFREITAS: this condition
+            // is correct, but it might
+            // unreachable.
+            seg = "/..";
+        }
         --level;
         return;
     }
-    c = {};
+    seg = {};
 }
 
 void
 normalized_path_digest(
-    core::string_view s,
+    core::string_view str,
     bool remove_unmatched,
     fnv_1a& hasher) noexcept
 {
-    core::string_view child;
+    core::string_view seg;
     std::size_t level = 0;
     do
     {
         pop_last_segment(
-            s, child, level, remove_unmatched);
-        while (!child.empty())
+            str, seg, level, remove_unmatched);
+        while (!seg.empty())
         {
-            char c = path_pop_back(child);
+            char c = path_pop_back(seg);
             hasher.put(c);
         }
     }
-    while (!s.empty());
+    while (!str.empty());
 }
 
 // compare segments as if there were a normalized
@@ -851,4 +961,3 @@ segments_compare(
 } // urls
 } // boost
 
-#endif

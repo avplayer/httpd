@@ -7,7 +7,7 @@
 
 #include <boost/locale.hpp>
 #include <boost/locale/conversion.hpp>
-#include "../src/boost/locale/win32/lcid.hpp"
+#include "../src/win32/lcid.hpp"
 #include "boostLocale/test/tools.hpp"
 #include "boostLocale/test/unit_test.hpp"
 #include <boost/assert.hpp>
@@ -36,6 +36,21 @@ namespace boost { namespace locale { namespace test {
     bool has_facet(const std::locale& l)
     {
         return std::has_facet<Facet>(l) && is_facet<Facet>(&std::use_facet<Facet>(l));
+    }
+
+    template<class Facet>
+    bool has_not_facet(const std::locale& l)
+    {
+        const Facet* f;
+        try {
+            f = &std::use_facet<Facet>(l);
+        } catch(const std::bad_cast&) {
+            return !std::has_facet<Facet>(l);
+        }
+        // This mustn't be reached, checks for debugging
+        TEST(is_facet<Facet>(f));        // LCOV_EXCL_LINE
+        TEST(!std::has_facet<Facet>(l)); // LCOV_EXCL_LINE
+        return false;                    // LCOV_EXCL_LINE
     }
 }}} // namespace boost::locale::test
 namespace blt = boost::locale::test;
@@ -67,7 +82,8 @@ bool hasLocaleForBackend(const std::string& locale_name, const std::string& back
         return has_posix_locale(locale_name);
     else {
         BOOST_ASSERT(backendName == "icu");
-        return BOOST_LOCALE_ICU_VERSION >= 5901; // First version to use (correct) CLDR data
+        return (locale_name.substr(0, 3) != "en_")
+               || (BOOST_LOCALE_ICU_VERSION >= 5901); // First version to use (correct) CLDR data for en_* locales
     }
 }
 
@@ -232,6 +248,49 @@ void test_install_chartype(const std::string& backendName)
     }
 }
 
+template<typename Char>
+struct dummy_collate : std::collate<Char> {};
+
+template<typename Char>
+bool has_dummy_collate(const std::locale& l)
+{
+    const auto& col = std::use_facet<std::collate<Char>>(l); // Implicitely require existance of std::collate
+    return blt::is_facet<dummy_collate<Char>>(&col);
+}
+
+void test_std_collate_replaced(const std::string& /*backendName*/)
+{
+    std::locale origLocale = std::locale::classic();
+    origLocale = std::locale(origLocale, new dummy_collate<char>);
+    origLocale = std::locale(origLocale, new dummy_collate<wchar_t>);
+#ifdef BOOST_LOCALE_ENABLE_CHAR16_T
+    origLocale = std::locale(origLocale, new dummy_collate<char16_t>);
+#endif
+#ifdef BOOST_LOCALE_ENABLE_CHAR32_T
+    origLocale = std::locale(origLocale, new dummy_collate<char32_t>);
+#endif
+
+    // Use ASCII and UTF-8 encoding
+    for(const std::string localeName : {"C", "en_US.UTF-8"}) {
+        std::cout << "--- Locale: " << localeName << std::endl;
+        bl::generator g;
+        g.categories(boost::locale::category_t::collation);
+        const std::locale l = g.generate(origLocale, localeName);
+        TEST(has_dummy_collate<char>(origLocale));
+        TEST(!has_dummy_collate<char>(l));
+        TEST(has_dummy_collate<wchar_t>(origLocale));
+        TEST(!has_dummy_collate<wchar_t>(l));
+#ifdef BOOST_LOCALE_ENABLE_CHAR16_T
+        TEST(has_dummy_collate<char16_t>(origLocale));
+        TEST(!has_dummy_collate<char16_t>(l));
+#endif
+#ifdef BOOST_LOCALE_ENABLE_CHAR32_T
+        TEST(has_dummy_collate<char32_t>(origLocale));
+        TEST(!has_dummy_collate<char32_t>(l));
+#endif
+    }
+}
+
 void test_main(int /*argc*/, char** /*argv*/)
 {
     {
@@ -265,16 +324,31 @@ void test_main(int /*argc*/, char** /*argv*/)
         for(const std::string localeName : {"", "C", "en_US.UTF-8", "en_US.ISO8859-1", "tr_TR.windows1254"}) {
             std::cout << "-- Locale: " << localeName << std::endl;
             const std::locale l = g(localeName);
-#ifdef BOOST_LOCALE_ENABLE_CHAR16_T
-#    define TEST_HAS_FACET_CHAR16(facet, l) TEST(blt::has_facet<facet<char16_t>>(l))
+#ifdef __cpp_char8_t
+#    define TEST_FOR_CHAR8(check) TEST(check)
 #else
-#    define TEST_HAS_FACET_CHAR16(facet, l) (void)0
+#    define TEST_FOR_CHAR8(check) (void)0
+#endif
+#ifdef __cpp_lib_char8_t
+#    define TEST_FOR_STRING8(check) TEST(check)
+#else
+#    define TEST_FOR_STRING8(check) (void)0
+#endif
+#ifdef BOOST_LOCALE_ENABLE_CHAR16_T
+#    define TEST_FOR_CHAR16(check) TEST(check)
+#else
+#    define TEST_FOR_CHAR16(check) (void)0
 #endif
 #ifdef BOOST_LOCALE_ENABLE_CHAR32_T
-#    define TEST_HAS_FACET_CHAR32(facet, l) TEST(blt::has_facet<facet<char32_t>>(l))
+#    define TEST_FOR_CHAR32(check) TEST(check)
 #else
-#    define TEST_HAS_FACET_CHAR32(facet, l) (void)0
+#    define TEST_FOR_CHAR32(check) (void)0
 #endif
+#define TEST_HAS_FACET_CHAR8(facet, l) TEST_FOR_CHAR8(blt::has_facet<facet<char8_t>>(l))
+#define TEST_HAS_FACET_CHAR16(facet, l) TEST_FOR_CHAR16(blt::has_facet<facet<char16_t>>(l))
+#define TEST_HAS_FACET_CHAR32(facet, l) TEST_FOR_CHAR32(blt::has_facet<facet<char32_t>>(l))
+#define TEST_HAS_FACET_STRING8(facet, l) TEST_FOR_STRING8(blt::has_facet<facet<char8_t>>(l))
+
 #define TEST_HAS_FACETS(facet, l)                \
     do {                                         \
         TEST(blt::has_facet<facet<char>>(l));    \
@@ -285,7 +359,19 @@ void test_main(int /*argc*/, char** /*argv*/)
 
             // Convert
             TEST_HAS_FACETS(bl::converter, l);
+            TEST_HAS_FACET_STRING8(bl::converter, l);
+            // Collator
             TEST_HAS_FACETS(std::collate, l);
+            if(backendName == "icu" || (backendName == "winapi" && std::use_facet<bl::info>(l).utf8())) {
+                TEST_HAS_FACETS(bl::collator, l);
+                TEST_HAS_FACET_STRING8(bl::collator, l);
+            } else {
+                TEST(blt::has_not_facet<bl::collator<char>>(l));
+                TEST(blt::has_not_facet<bl::collator<wchar_t>>(l));
+                TEST_FOR_STRING8(blt::has_not_facet<bl::collator<char8_t>>(l));
+                TEST_FOR_CHAR16(blt::has_not_facet<bl::collator<char16_t>>(l));
+                TEST_FOR_CHAR32(blt::has_not_facet<bl::collator<char32_t>>(l));
+            }
             // Formatting
             TEST_HAS_FACETS(std::num_put, l);
             TEST_HAS_FACETS(std::time_put, l);
@@ -295,11 +381,14 @@ void test_main(int /*argc*/, char** /*argv*/)
             TEST_HAS_FACETS(std::num_get, l);
             // Message
             TEST_HAS_FACETS(bl::message_format, l);
+            TEST_HAS_FACET_STRING8(bl::message_format, l);
             // Codepage
             TEST_HAS_FACETS(codecvt_by_char_type, l);
             // Boundary
-            if(backendName == "icu")
+            if(backendName == "icu") {
                 TEST_HAS_FACETS(bl::boundary::boundary_indexing, l);
+                TEST_HAS_FACET_CHAR8(bl::boundary::boundary_indexing, l);
+            }
             // calendar
             TEST(blt::has_facet<bl::calendar_facet>(l));
             // information
@@ -326,22 +415,41 @@ void test_main(int /*argc*/, char** /*argv*/)
         TEST(has_message(l));
 
         l = g("en_US.ISO8859-1");
-        TEST_EQ(std::use_facet<bl::info>(l).language(), "en");
-        TEST_EQ(std::use_facet<bl::info>(l).country(), "US");
-        TEST(!std::use_facet<bl::info>(l).utf8());
-        TEST_EQ(std::use_facet<bl::info>(l).encoding(), "ISO8859-1");
-
+        {
+            const auto& info = std::use_facet<bl::info>(l);
+            TEST_EQ(info.language(), "en");
+            TEST_EQ(info.country(), "US");
+            TEST(!info.utf8());
+            TEST_EQ(info.variant(), "");
+            TEST_EQ(info.encoding(), "ISO8859-1");
+        }
         l = g("en_US.UTF-8");
-        TEST_EQ(std::use_facet<bl::info>(l).language(), "en");
-        TEST_EQ(std::use_facet<bl::info>(l).country(), "US");
-        TEST(std::use_facet<bl::info>(l).utf8());
-        TEST_EQ(std::use_facet<bl::info>(l).encoding(), "UTF-8");
-
+        {
+            const auto& info = std::use_facet<bl::info>(l);
+            TEST_EQ(info.language(), "en");
+            TEST_EQ(info.country(), "US");
+            TEST(info.utf8());
+            TEST_EQ(info.variant(), "");
+            TEST_EQ(info.encoding(), "UTF-8");
+        }
+        l = g("da_DK.ISO8859-15@euro");
+        {
+            const auto& info = std::use_facet<bl::info>(l);
+            TEST_EQ(info.language(), "da");
+            TEST_EQ(info.country(), "DK");
+            TEST(!info.utf8());
+            TEST_EQ(info.variant(), "euro");
+            TEST_EQ(info.encoding(), "ISO8859-15");
+        }
         l = g("en_US.ISO8859-1");
-        TEST_EQ(std::use_facet<bl::info>(l).language(), "en");
-        TEST_EQ(std::use_facet<bl::info>(l).country(), "US");
-        TEST(!std::use_facet<bl::info>(l).utf8());
-        TEST_EQ(std::use_facet<bl::info>(l).encoding(), "ISO8859-1");
+        {
+            const auto& info = std::use_facet<bl::info>(l);
+            TEST_EQ(info.language(), "en");
+            TEST_EQ(info.country(), "US");
+            TEST(!info.utf8());
+            TEST_EQ(info.variant(), "");
+            TEST_EQ(info.encoding(), "ISO8859-1");
+        }
 
         // Check that generate() extends the given locale, not replaces it
         std::locale l_wt(std::locale::classic(), new test_facet);
@@ -363,6 +471,7 @@ void test_main(int /*argc*/, char** /*argv*/)
         TEST(!std::use_facet<bl::info>(g("en_US.ISO8859-1")).utf8());
 
         test_install_chartype(backendName);
+        test_std_collate_replaced(backendName);
     }
     std::cout << "Test special locales" << std::endl;
     test_special_locales();

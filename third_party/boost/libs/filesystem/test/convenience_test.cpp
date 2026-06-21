@@ -19,9 +19,9 @@
 #endif
 
 #include <boost/filesystem/path.hpp>
-#include <boost/filesystem/convenience.hpp>
 #include <boost/filesystem/directory.hpp>
 #include <boost/filesystem/exception.hpp>
+#include <boost/filesystem/operations.hpp>
 
 #include <boost/core/lightweight_test.hpp>
 #include <boost/detail/lightweight_main.hpp>
@@ -105,7 +105,7 @@ int cpp_main(int, char*[])
 
     fs::remove(unique_dir / "uu");
 
-#ifdef BOOST_WINDOWS_API
+#ifdef BOOST_FILESYSTEM_WINDOWS_API
     // These tests depends on ordering of directory entries, and that's guaranteed
     // on Windows but not necessarily on other operating systems
     {

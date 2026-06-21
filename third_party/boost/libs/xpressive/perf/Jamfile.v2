@@ -1,0 +1,22 @@
+# Copyright Eric Niebler 2006
+
+# Use, modification, and distribution is subject to the Boost Software
+# License, Version 1.0. (See accompanying file LICENSE_1_0.txt or copy at
+# http://www.boost.org/LICENSE_1_0.txt)
+
+project : requirements <library>/boost/xpressive//boost_xpressive ;
+
+exe xprperf
+    :
+        command_line.cpp
+        main.cpp
+        time_boost.cpp
+        time_dynamic_xpressive.cpp
+        time_static_xpressive.cpp
+        /boost/regex//boost_regex
+        /boost/timer//boost_timer
+        /boost/test//boost_unit_test_framework
+    :
+        <define>BOOST_XPRESSIVE_USE_CPP_TRAITS
+        <define>BOOST_TIMER_ENABLE_DEPRECATED
+    ;

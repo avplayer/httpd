@@ -9,7 +9,6 @@
 //////////////////////////////////////////////////////////////////////////////
 //[doc_custom_devector
 #include <boost/container/devector.hpp>
-#include <boost/static_assert.hpp>
 
 //Make sure assertions are active
 #ifdef NDEBUG
@@ -21,15 +20,16 @@ int main ()
 {
    using namespace boost::container;
 
-   ////////////////////////////////////////////////
-   //          'stored_size' option
-   ////////////////////////////////////////////////
+//--------------------------------------------
+//          'stored_size' option
+//--------------------------------------------
+
    //Specify that a devector will use "unsigned char" as the type to store size/capacity
    typedef devector_options< stored_size<unsigned char> >::type size_option_t;
 
    //Size-optimized devector is smaller than the default one.
    typedef devector<int, new_allocator<int>, size_option_t > size_optimized_devector_t;
-   BOOST_STATIC_ASSERT(( sizeof(size_optimized_devector_t) < sizeof(devector<int>) ));
+   assert(( sizeof(size_optimized_devector_t) < sizeof(devector<int>) ));
 
    //Requesting capacity for more elements than representable by "unsigned char" is an error
    bool exception_thrown = false;
@@ -41,12 +41,13 @@ int main ()
    #endif   //BOOST_NO_EXCEPTIONS
    /*->*/
    //=try       { size_optimized_devector_t v(256); }
-   //=catch(...){ exception_thrown = true;        }
+   //=catch(...){ exception_thrown = true;          }
    assert(exception_thrown == true);
 
-   ////////////////////////////////////////////////
-   //          'growth_factor' option
-   ////////////////////////////////////////////////
+//--------------------------------------------
+//          'growth_factor' option
+//--------------------------------------------
+
    //Specify that a devector will increase its capacity 50% when reallocating
    typedef devector_options< growth_factor<growth_factor_50> >::type growth_50_option_t;
 
@@ -59,9 +60,9 @@ int main ()
    growth_50_dv.push_back(1);
    assert(growth_50_dv.capacity() == old_cap*3/2);
 
-   ////////////////////////////////////////////////
-   //          'relocate_on' option
-   ////////////////////////////////////////////////
+//--------------------------------------------
+//          'relocate_on' option
+//--------------------------------------------
 
    //Specifies that a devector will not reallocate but relocate elements if the free space
    //at one end is exhausted and the total load factor is below the 66% threshold.

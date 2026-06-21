@@ -1,4 +1,4 @@
-//  Copyright (c) 2020 Andrey Semashev
+//  Copyright (c) 2020-2025 Andrey Semashev
 //
 //  Distributed under the Boost Software License, Version 1.0.
 //  See accompanying file LICENSE_1_0.txt or copy at
@@ -13,23 +13,20 @@
 #include <boost/memory_order.hpp>
 #include <boost/atomic/atomic.hpp>
 
+#include <chrono>
+#include <thread>
+#include <memory>
 #include <iostream>
 #include <boost/config.hpp>
-#include <boost/bind/bind.hpp>
-#include <boost/chrono/chrono.hpp>
-#include <boost/thread/thread.hpp>
-#include <boost/thread/barrier.hpp>
-#include <boost/smart_ptr/scoped_array.hpp>
-
-namespace chrono = boost::chrono;
+#include "test_barrier.hpp"
 
 boost::atomic< unsigned int > g_atomic(0u);
 
-BOOST_CONSTEXPR_OR_CONST unsigned int loop_count = 4096u;
+constexpr unsigned int loop_count = 4096u;
 
-void thread_func(boost::barrier* barrier)
+void thread_func(test_barrier* barrier)
 {
-    barrier->wait();
+    barrier->arrive_and_wait();
 
     unsigned int old_count = 0u;
     while (true)
@@ -44,17 +41,17 @@ void thread_func(boost::barrier* barrier)
 
 int main()
 {
-    const unsigned int thread_count = boost::thread::hardware_concurrency() + 4u;
-    boost::barrier barrier(thread_count + 1u);
-    boost::scoped_array< boost::thread > threads(new boost::thread[thread_count]);
+    const unsigned int thread_count = std::thread::hardware_concurrency() + 4u;
+    test_barrier barrier(thread_count + 1u);
+    std::unique_ptr< std::thread[] > threads(new std::thread[thread_count]);
 
     for (unsigned int i = 0u; i < thread_count; ++i)
-        boost::thread(boost::bind(&thread_func, &barrier)).swap(threads[i]);
+        threads[i] = std::thread([&barrier]() { thread_func(&barrier); });
 
-    barrier.wait();
+    barrier.arrive_and_wait();
 
     // Let the threads block on the atomic counter
-    boost::this_thread::sleep_for(chrono::milliseconds(100));
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
     while (true)
     {

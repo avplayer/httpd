@@ -11,6 +11,7 @@
 #include <boost/json/value.hpp>
 #include <iostream>
 
+#include <boost/core/detail/static_assert.hpp>
 #include <boost/json/monotonic_resource.hpp>
 
 #include <memory>
@@ -23,8 +24,8 @@
 namespace boost {
 namespace json {
 
-BOOST_STATIC_ASSERT( std::is_nothrow_destructible<value>::value );
-BOOST_STATIC_ASSERT( std::is_nothrow_move_constructible<value>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_destructible<value>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_move_constructible<value>::value );
 
 namespace {
 
@@ -68,8 +69,6 @@ private:
 class value_test
 {
 public:
-    //BOOST_STATIC_ASSERT(has_value_from<short>::value);
-
     string_view const str_;
 
     value_test()
@@ -1686,7 +1685,7 @@ public:
         }
 
         {
-            error_code ec;
+            system::error_code ec;
             value(nullptr).to_number<double>(ec);
             BOOST_TEST(ec == error::not_number);
             BOOST_TEST(ec.has_location());
@@ -1697,6 +1696,12 @@ public:
             value(nullptr).to_number<double>(ec);
             BOOST_TEST(error::not_number == ec);
         }
+
+        system::result<int> res = value(1).try_to_number<int>();
+        BOOST_TEST( res.value() == 1 );
+
+        BOOST_TEST_THROWS_WITH_LOCATION(
+            value(object_kind).try_to_number<double>().value());
     }
 
     void
@@ -1759,6 +1764,39 @@ public:
             (void)x;
         }
 
+        // try_as_object()
+        {
+            object& x = obj.try_as_object().value();
+            BOOST_TEST( arr.try_as_object().has_error() );
+            BOOST_TEST( str.try_as_object().has_error() );
+            BOOST_TEST( i64.try_as_object().has_error() );
+            BOOST_TEST( u64.try_as_object().has_error() );
+            BOOST_TEST( dub.try_as_object().has_error() );
+            BOOST_TEST( boo.try_as_object().has_error() );
+            BOOST_TEST( nul.try_as_object().has_error() );
+            (void)x;
+        }
+
+        // try_as_object() const
+        {
+#if defined(BOOST_GCC) && BOOST_GCC >= 130000
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wdangling-reference"
+#endif
+            object const& x = cobj.try_as_object().value();
+#if defined(BOOST_GCC)
+# pragma GCC diagnostic pop
+#endif
+            BOOST_TEST( carr.try_as_object().has_error() );
+            BOOST_TEST( cstr.try_as_object().has_error() );
+            BOOST_TEST( ci64.try_as_object().has_error() );
+            BOOST_TEST( cu64.try_as_object().has_error() );
+            BOOST_TEST( cdub.try_as_object().has_error() );
+            BOOST_TEST( cboo.try_as_object().has_error() );
+            BOOST_TEST( cnul.try_as_object().has_error() );
+            (void)x;
+        }
+
         // as_array() &
         {
             array& x = arr.as_array();
@@ -1798,6 +1836,39 @@ public:
             (void)x;
         }
 
+        // try_as_array()
+        {
+            array& x = arr.try_as_array().value();
+            BOOST_TEST( obj.try_as_array().has_error() );
+            BOOST_TEST( str.try_as_array().has_error() );
+            BOOST_TEST( i64.try_as_array().has_error() );
+            BOOST_TEST( u64.try_as_array().has_error() );
+            BOOST_TEST( dub.try_as_array().has_error() );
+            BOOST_TEST( boo.try_as_array().has_error() );
+            BOOST_TEST( nul.try_as_array().has_error() );
+            (void)x;
+        }
+
+        // try_as_array() const
+        {
+#if defined(BOOST_GCC) && BOOST_GCC >= 130000
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wdangling-reference"
+#endif
+            array const& x = carr.try_as_array().value();
+#if defined(BOOST_GCC)
+# pragma GCC diagnostic pop
+#endif
+            BOOST_TEST( cobj.try_as_array().has_error() );
+            BOOST_TEST( cstr.try_as_array().has_error() );
+            BOOST_TEST( ci64.try_as_array().has_error() );
+            BOOST_TEST( cu64.try_as_array().has_error() );
+            BOOST_TEST( cdub.try_as_array().has_error() );
+            BOOST_TEST( cboo.try_as_array().has_error() );
+            BOOST_TEST( cnul.try_as_array().has_error() );
+            (void)x;
+        }
+
         // as_string() &
         {
             string& x = str.as_string();
@@ -1824,7 +1895,7 @@ public:
             (void)x;
         }
 
-        // as_string() const&
+        // as_string() &&
         {
             BOOST_TEST_THROWS_WITH_LOCATION( std::move(obj).as_string() );
             BOOST_TEST_THROWS_WITH_LOCATION( std::move(arr).as_string() );
@@ -1834,6 +1905,39 @@ public:
             BOOST_TEST_THROWS_WITH_LOCATION( std::move(dub).as_string() );
             BOOST_TEST_THROWS_WITH_LOCATION( std::move(boo).as_string() );
             BOOST_TEST_THROWS_WITH_LOCATION( std::move(nul).as_string() );
+            (void)x;
+        }
+
+        // try_as_string()
+        {
+            string& x = str.try_as_string().value();
+            BOOST_TEST( obj.try_as_string().has_error() );
+            BOOST_TEST( arr.try_as_string().has_error() );
+            BOOST_TEST( i64.try_as_string().has_error() );
+            BOOST_TEST( u64.try_as_string().has_error() );
+            BOOST_TEST( dub.try_as_string().has_error() );
+            BOOST_TEST( boo.try_as_string().has_error() );
+            BOOST_TEST( nul.try_as_string().has_error() );
+            (void)x;
+        }
+
+        // try_as_string() const
+        {
+#if defined(BOOST_GCC) && BOOST_GCC >= 130000
+# pragma GCC diagnostic push
+# pragma GCC diagnostic ignored "-Wdangling-reference"
+#endif
+            string const& x = cstr.try_as_string().value();
+#if defined(BOOST_GCC)
+# pragma GCC diagnostic pop
+#endif
+            BOOST_TEST( cobj.try_as_string().has_error() );
+            BOOST_TEST( carr.try_as_string().has_error() );
+            BOOST_TEST( ci64.try_as_string().has_error() );
+            BOOST_TEST( cu64.try_as_string().has_error() );
+            BOOST_TEST( cdub.try_as_string().has_error() );
+            BOOST_TEST( cboo.try_as_string().has_error() );
+            BOOST_TEST( cnul.try_as_string().has_error() );
             (void)x;
         }
 
@@ -1863,6 +1967,32 @@ public:
             (void)x;
         }
 
+        // try_as_int64()
+        {
+            std::int64_t& x = i64.try_as_int64().value();
+            BOOST_TEST( obj.try_as_int64().has_error() );
+            BOOST_TEST( arr.try_as_int64().has_error() );
+            BOOST_TEST( str.try_as_int64().has_error() );
+            BOOST_TEST( u64.try_as_int64().has_error() );
+            BOOST_TEST( dub.try_as_int64().has_error() );
+            BOOST_TEST( boo.try_as_int64().has_error() );
+            BOOST_TEST( nul.try_as_int64().has_error() );
+            (void)x;
+        }
+
+        // as_int64() const
+        {
+            std::int64_t const& x = ci64.as_int64();
+            BOOST_TEST( cobj.try_as_int64().has_error() );
+            BOOST_TEST( carr.try_as_int64().has_error() );
+            BOOST_TEST( cstr.try_as_int64().has_error() );
+            BOOST_TEST( cu64.try_as_int64().has_error() );
+            BOOST_TEST( cdub.try_as_int64().has_error() );
+            BOOST_TEST( cboo.try_as_int64().has_error() );
+            BOOST_TEST( cnul.try_as_int64().has_error() );
+            (void)x;
+        }
+
         // as_uint64()
         {
             std::uint64_t& x = u64.as_uint64();
@@ -1886,6 +2016,32 @@ public:
             BOOST_TEST_THROWS_WITH_LOCATION( cdub.as_uint64() );
             BOOST_TEST_THROWS_WITH_LOCATION( cboo.as_uint64() );
             BOOST_TEST_THROWS_WITH_LOCATION( cnul.as_uint64() );
+            (void)x;
+        }
+
+        // try_as_uint64()
+        {
+            std::uint64_t& x = u64.try_as_uint64().value();
+            BOOST_TEST( obj.try_as_uint64().has_error() );
+            BOOST_TEST( arr.try_as_uint64().has_error() );
+            BOOST_TEST( str.try_as_uint64().has_error() );
+            BOOST_TEST( i64.try_as_uint64().has_error() );
+            BOOST_TEST( dub.try_as_uint64().has_error() );
+            BOOST_TEST( boo.try_as_uint64().has_error() );
+            BOOST_TEST( nul.try_as_uint64().has_error() );
+            (void)x;
+        }
+
+        // try_as_uint64() const
+        {
+            std::uint64_t const& x = cu64.try_as_uint64().value();
+            BOOST_TEST( cobj.try_as_uint64().has_error() );
+            BOOST_TEST( carr.try_as_uint64().has_error() );
+            BOOST_TEST( cstr.try_as_uint64().has_error() );
+            BOOST_TEST( ci64.try_as_uint64().has_error() );
+            BOOST_TEST( cdub.try_as_uint64().has_error() );
+            BOOST_TEST( cboo.try_as_uint64().has_error() );
+            BOOST_TEST( cnul.try_as_uint64().has_error() );
             (void)x;
         }
 
@@ -1915,6 +2071,32 @@ public:
             (void)x;
         }
 
+        // try_as_double()
+        {
+            double& x = dub.try_as_double().value();
+            BOOST_TEST( obj.try_as_double().has_error() );
+            BOOST_TEST( arr.try_as_double().has_error() );
+            BOOST_TEST( str.try_as_double().has_error() );
+            BOOST_TEST( i64.try_as_double().has_error() );
+            BOOST_TEST( u64.try_as_double().has_error() );
+            BOOST_TEST( boo.try_as_double().has_error() );
+            BOOST_TEST( nul.try_as_double().has_error() );
+            (void)x;
+        }
+
+        // try_as_double() const
+        {
+            double const& x = cdub.try_as_double().value();
+            BOOST_TEST( cobj.try_as_double().has_error() );
+            BOOST_TEST( carr.try_as_double().has_error() );
+            BOOST_TEST( cstr.try_as_double().has_error() );
+            BOOST_TEST( ci64.try_as_double().has_error() );
+            BOOST_TEST( cu64.try_as_double().has_error() );
+            BOOST_TEST( cboo.try_as_double().has_error() );
+            BOOST_TEST( cnul.try_as_double().has_error() );
+            (void)x;
+        }
+
         // as_bool()
         {
             bool& x = boo.as_bool();
@@ -1939,6 +2121,38 @@ public:
             BOOST_TEST_THROWS_WITH_LOCATION( cdub.as_bool() );
             BOOST_TEST_THROWS_WITH_LOCATION( cnul.as_bool() );
             (void)x;
+        }
+
+        // try_as_bool()
+        {
+            bool& x = boo.try_as_bool().value();
+            BOOST_TEST( obj.try_as_bool().has_error() );
+            BOOST_TEST( arr.try_as_bool().has_error() );
+            BOOST_TEST( str.try_as_bool().has_error() );
+            BOOST_TEST( i64.try_as_bool().has_error() );
+            BOOST_TEST( u64.try_as_bool().has_error() );
+            BOOST_TEST( dub.try_as_bool().has_error() );
+            BOOST_TEST( nul.try_as_bool().has_error() );
+            (void)x;
+        }
+
+        // try_as_bool() const
+        {
+            bool const&x = cboo.try_as_bool().value();
+            BOOST_TEST( cobj.try_as_bool().has_error() );
+            BOOST_TEST( carr.try_as_bool().has_error() );
+            BOOST_TEST( cstr.try_as_bool().has_error() );
+            BOOST_TEST( ci64.try_as_bool().has_error() );
+            BOOST_TEST( cu64.try_as_bool().has_error() );
+            BOOST_TEST( cdub.try_as_bool().has_error() );
+            BOOST_TEST( cnul.try_as_bool().has_error() );
+            (void)x;
+        }
+
+        // try_as_null
+        {
+            BOOST_TEST( cnul.try_as_null().value() == nullptr );
+            BOOST_TEST_THROWS_WITH_LOCATION( cboo.try_as_null().value() );
         }
     }
 
@@ -2034,25 +2248,32 @@ public:
         value jvo{{"k1", "value"}, {"k2", nullptr}};
         value const& cjvo = jvo;
         BOOST_TEST( cjvo.at("k1").as_string() == "value" );
+        BOOST_TEST( cjvo.try_at("k1")->as_string() == "value" );
 
         jvo.at("k1") = {1, 2, 3};
         BOOST_TEST( cjvo.at("k1") == array({1, 2, 3}) );
+        BOOST_TEST( *cjvo.try_at("k1") == array({1, 2, 3}) );
 
         auto&& elem1 = std::move(jvo).at("k1");
         BOOST_TEST( &elem1 == &jvo.at("k1") );
+        BOOST_TEST( &elem1 == &*jvo.try_at("k1") );
 
         BOOST_TEST_THROWS_WITH_LOCATION( cjvo.at("null") );
+        BOOST_TEST( cjvo.try_at("null").error() == error::out_of_range );
 
         // array
         value jva{true,2,"3"};
         value const& cjva = jva;
         BOOST_TEST( cjva.at(1).as_int64() == 2 );
+        BOOST_TEST( cjva.try_at(1)->as_int64() == 2 );
 
         jva.at(1) = "item";
         BOOST_TEST( cjva.at(1) == "item" );
+        BOOST_TEST( *cjva.try_at(1) == "item" );
 
         auto&& elem2 = std::move(jva).at(1);
         BOOST_TEST( &elem2 == &jva.at(1) );
+        BOOST_TEST( &elem2 == &*jva.try_at(1) );
 
         BOOST_TEST_THROWS_WITH_LOCATION( value({false,2,false}).at(4) );
         BOOST_TEST_THROWS_WITH_LOCATION( value({false,2,"3"}).at(4) );
@@ -2061,6 +2282,21 @@ public:
         BOOST_TEST_THROWS_WITH_LOCATION( value({false,2,"3",nullptr}).at(4) );
         BOOST_TEST_THROWS_WITH_LOCATION( value({2,false,"3"}).at(4) );
         BOOST_TEST_THROWS_WITH_LOCATION( value({true,2,"3"}).at(4) );
+
+        BOOST_TEST(
+            value({false,2,false}).try_at(4) == error::out_of_range );
+        BOOST_TEST(
+            value({false,2,"3"}).try_at(4) == error::out_of_range );
+        BOOST_TEST(
+            value({false,false}).try_at(4) == error::out_of_range );
+        BOOST_TEST(
+            value({false,2}).try_at(4) == error::out_of_range );
+        BOOST_TEST(
+            value({false,2,"3",nullptr}).try_at(4) == error::out_of_range );
+        BOOST_TEST(
+            value({2,false,"3"}).try_at(4) == error::out_of_range );
+        BOOST_TEST(
+            value({true,2,"3"}).try_at(4) == error::out_of_range );
     }
 
     //------------------------------------------------------
@@ -2082,13 +2318,14 @@ public:
         BOOST_TEST(std::memcmp(
             v3.key_c_str(), "key\0", 4) == 0);
 
-        BOOST_STATIC_ASSERT(std::tuple_size<key_value_pair>::value == 2);
+        BOOST_CORE_STATIC_ASSERT(std::tuple_size<key_value_pair>::value == 2);
         BOOST_TEST(get<0>(v3) == "key");
         BOOST_TEST(
             get<1>(v3).get_string() == "value");
 
-        BOOST_STATIC_ASSERT(std::is_same<
-            decltype(get<1>(std::declval<kvp>())), json::value&&>::value);
+        BOOST_CORE_STATIC_ASSERT((
+            std::is_same<
+                decltype(get<1>(std::declval<kvp>())), json::value&&>::value));
 
 #if __cplusplus >= 201703L || (defined(_MSVC_LANG) && _MSVC_LANG >= 201703L)
         auto const [kc, vc] = v1;
@@ -2131,6 +2368,55 @@ public:
     void
     testInitList()
     {
+        {
+            value jv1{};
+            BOOST_TEST( jv1.is_null() );
+
+            value jv2 = {};
+            BOOST_TEST( jv2.is_null() );
+
+            value jv3 = value{};
+            BOOST_TEST( jv3.is_null() );
+        }
+        {
+            value jv1{1, 2};
+            BOOST_TEST(( jv1 == array{1,2} ));
+
+            value jv2 = {1, 2};
+            BOOST_TEST(( jv2 == array{1,2} ));
+
+            value jv3 = value{1, 2};
+            BOOST_TEST(( jv3 == array{1,2} ));
+
+            value jv4{{1, 2}};
+            BOOST_TEST(( jv4 == array{1,2} ));
+
+            value jv5 = {{1, 2}};
+            BOOST_TEST(( jv5 == array{1,2} ));
+
+            value jv6 = value{{1, 2}};
+            BOOST_TEST(( jv6 == array{1,2} ));
+        }
+        {
+            value jv1{0};
+            BOOST_TEST( jv1 == 0 );
+
+            value jv2 = {0};
+            BOOST_TEST( jv2 == 0 );
+
+            value jv3 = value{0};
+            BOOST_TEST( jv3 == 0 );
+
+            value jv4{{0}};
+            BOOST_TEST( jv4 == array{0} );
+
+            value jv5 = {{0}};
+            BOOST_TEST( jv5 == array{0} );
+
+            value jv6 = value{{0}};
+            BOOST_TEST( jv6 == array{0} );
+        }
+
         check_array(value{0,0,0},               0, 0, 0);
         check_array(value{false,false,false},   false, false, false);
         check_array(value{false,2,false},       false, 2, false);
@@ -2140,6 +2426,16 @@ public:
         check_array(value{false,2,"3",nullptr}, false, 2, "3", nullptr);
         check_array(value{2,false,"3"},         2, false, "3");
         check_array(value{true,2,"3"},          true, 2, "3");
+
+        check_array({0,0,0},               0, 0, 0);
+        check_array({false,false,false},   false, false, false);
+        check_array({false,2,false},       false, 2, false);
+        check_array({false,2,"3"},         false, 2, "3");
+        check_array({false,false},         false, false);
+        check_array({false,2},             false, 2);
+        check_array({false,2,"3",nullptr}, false, 2, "3", nullptr);
+        check_array({2,false,"3"},         2, false, "3");
+        check_array({true,2,"3"},          true, 2, "3");
     }
 
     //------------------------------------------------------

@@ -21,7 +21,7 @@ template <typename T, size_t N>
 void test_ctor_ndc()
 {
    static_vector<T, N> s;
-   BOOST_STATIC_ASSERT((static_vector<T, N>::static_capacity) == N);
+   BOOST_CONTAINER_STATIC_ASSERT((static_vector<T, N>::static_capacity) == N);
    BOOST_TEST_EQ(s.size() , 0u);
    BOOST_TEST(s.capacity() == N);
    BOOST_TEST(s.max_size() == N);
@@ -32,7 +32,7 @@ template <typename T, size_t N>
 void test_ctor_nc(size_t n)
 {
    static_vector<T, N> s(n);
-   BOOST_STATIC_ASSERT((static_vector<T, N>::static_capacity) == N);
+   BOOST_CONTAINER_STATIC_ASSERT((static_vector<T, N>::static_capacity) == N);
    BOOST_TEST(s.size() == n);
    BOOST_TEST(s.capacity() == N);
    BOOST_TEST(s.max_size() == N);
@@ -52,7 +52,7 @@ template <typename T, size_t N>
 void test_ctor_nd(size_t n, T const& v)
 {
    static_vector<T, N> s(n, v);
-   BOOST_STATIC_ASSERT((static_vector<T, N>::static_capacity) == N);
+   BOOST_CONTAINER_STATIC_ASSERT((static_vector<T, N>::static_capacity) == N);
    BOOST_TEST(s.size() == n);
    BOOST_TEST(s.capacity() == N);
    BOOST_TEST_THROWS( (void)s.at(n), out_of_range_t);
@@ -92,6 +92,7 @@ void test_support_for_initializer_list()
       BOOST_TEST_THROWS(sv.assign({1, 2, 3}), bad_alloc_t);
 
       static_vector<int, 3> greaterThanSv = {1, 2, 3};
+      BOOST_TEST(greaterThanSv.size() == 3u);
       BOOST_TEST_THROWS(sv = greaterThanSv, bad_alloc_t);
    }
 
@@ -627,51 +628,82 @@ bool default_init_test()//Test for default initialization
 {
    const std::size_t Capacity = 100;
 
-   typedef static_vector<int, Capacity> di_vector_t;
+   typedef static_vector<unsigned char, Capacity> di_vector_t;
 
    {
-      di_vector_t v(Capacity, default_init);
-   }
-   {
-      di_vector_t v;
-      int *p = v.data();
+      dtl::aligned_storage<sizeof(di_vector_t)>::type as;
+      di_vector_t *pv = ::new(as.data)di_vector_t(Capacity);
 
-      for(std::size_t i = 0; i != Capacity; ++i, ++p){
-         *p = static_cast<int>(i);
+      //Use volatile pointer to make compiler's job harder, as we are riding on UB
+      volatile unsigned char * pch_data = pv->data();
+
+      for (std::size_t i = 0; i != Capacity; ++i) {
+         pch_data[i] = static_cast<unsigned char>(i);
       }
+      pv->~di_vector_t();
 
-      //Destroy the vector, p still pointing to the storage
-      v.~di_vector_t();
+      pv = ::new(as.data) di_vector_t(Capacity, default_init);
+      pv->~di_vector_t();
 
-      di_vector_t &rv = *::new(&v)di_vector_t(Capacity, default_init);
-      di_vector_t::iterator it = rv.begin();
-
-      for(std::size_t i = 0; i != Capacity; ++i, ++it){
-         if(*it != static_cast<int>(i))
+      for(std::size_t i = 0; i != Capacity; ++i){
+         if (pch_data[i] != static_cast<unsigned char>(i)){
+            std::cout << "failed in iteration" << i << std::endl;
             return false;
+         }
       }
-
-      v.~di_vector_t();
    }
    {
       di_vector_t v;
 
-      int *p = v.data();
+      unsigned char *p = v.data();
       for(std::size_t i = 0; i != Capacity; ++i, ++p){
-         *p = static_cast<int>(i+100);
+         *p = static_cast<unsigned char>(i+100);
       }
 
       v.resize(Capacity, default_init);
 
       di_vector_t::iterator it = v.begin();
       for(std::size_t i = 0; i != Capacity; ++i, ++it){
-         if(*it != static_cast<int>(i+100))
+         if(*it != static_cast<unsigned char>(i+100))
             return false;
       }
    }
 
    return true;
 }
+
+#if defined(BOOST_INTRUSIVE_CONCEPTS_BASED_OVERLOADING)
+
+#include <type_traits>
+
+template<class T, bool Result>
+void static_vector_destructor_triviality_impl()
+{
+   typedef static_vector<T, 10> vector_t;
+   BOOST_CONTAINER_STATIC_ASSERT(( Result == std::is_trivially_destructible_v<vector_t> ));
+}
+
+struct non_trivial
+{
+   non_trivial(){}
+   ~non_trivial(){}
+};
+
+void static_vector_triviality()
+{
+   static_vector_destructor_triviality_impl<int, true>();
+   static_vector_destructor_triviality_impl<float, true>();
+   static_vector_destructor_triviality_impl<non_trivial, false>();
+}
+
+#else
+
+void static_vector_triviality(){}
+
+#endif   //BOOST_INTRUSIVE_CONCEPTS_BASED_OVERLOADING
+
+//Test the expected sizeof()
+BOOST_CONTAINER_STATIC_ASSERT_MSG(5*sizeof(void*) == sizeof(static_vector<void*, 4>), "sizeof has an unexpected value");
 
 
 int main(int, char* [])
@@ -788,6 +820,8 @@ int main(int, char* [])
       cont_int a; a.push_back(0); a.push_back(1); a.push_back(2);
       boost::intrusive::test::test_iterator_random< cont_int >(a);
    }
+
+   static_vector_triviality();
 
    return boost::report_errors();
 }

@@ -1,0 +1,477 @@
+[#uuid]
+== <boost/uuid/uuid.hpp>
+
+:idprefix: uuid_
+
+=== Synopsis
+
+[source,c++]
+----
+namespace boost {
+namespace uuids {
+
+class uuid
+{
+private:
+
+    std::uint8_t data_[ 16 ] = {}; // exposition only
+
+public:
+
+    // constructors
+
+    constexpr uuid() = default;
+    constexpr uuid( std::uint8_t const (&r)[ 16 ] );
+
+    // iteration
+
+    using value_type = std::uint8_t;
+
+    using reference = std::uint8_t&;
+    using const_reference = std::uint8_t const&;
+
+    using iterator = std::uint8_t*;
+    using const_iterator = std::uint8_t const*;
+
+    using size_type = std::size_t;
+    using difference_type = std::ptrdiff_t;
+
+    constexpr iterator begin() noexcept;
+    constexpr iterator end() noexcept;
+
+    constexpr const_iterator begin() const noexcept;
+    constexpr const_iterator end() const noexcept;
+
+    // data
+
+    constexpr std::uint8_t* data() noexcept;
+    constexpr std::uint8_t const* data() const noexcept;
+
+    // size
+
+    constexpr size_type size() const noexcept;
+    static constexpr size_type static_size() noexcept;
+
+    // is_nil
+
+    constexpr bool is_nil() const noexcept;
+
+    // variant
+
+    enum variant_type
+    {
+        variant_ncs, // NCS backward compatibility
+        variant_rfc_4122, // defined in RFC 4122 document
+        variant_microsoft, // Microsoft Corporation backward compatibility
+        variant_future // future definition
+    };
+
+    constexpr variant_type variant() const noexcept;
+
+    // version
+
+    enum version_type
+    {
+        version_unknown = -1,
+        version_time_based = 1,
+        version_dce_security = 2,
+        version_name_based_md5 = 3,
+        version_random_number_based = 4,
+        version_name_based_sha1 = 5,
+        version_time_based_v6 = 6,
+        version_time_based_v7 = 7,
+        version_custom_v8 = 8
+    };
+
+    constexpr version_type version() const noexcept;
+
+    // time-based fields
+
+    using timestamp_type = std::uint64_t;
+    using clock_seq_type = std::uint16_t;
+    using node_type = std::array<std::uint8_t, 6>;
+
+    constexpr timestamp_type timestamp_v1() const noexcept;
+    uuid_clock::time_point time_point_v1() const noexcept;
+
+    constexpr timestamp_type timestamp_v6() const noexcept;
+    uuid_clock::time_point time_point_v6() const noexcept;
+
+    constexpr timestamp_type timestamp_v7() const noexcept;
+
+    std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>
+      time_point_v7() const noexcept;
+
+    constexpr clock_seq_type clock_seq() const noexcept;
+    constexpr node_type node_identifier() const noexcept;
+
+    // swap
+
+    constexpr void swap( uuid& rhs ) noexcept;
+};
+
+// operators
+
+constexpr bool operator==( uuid const& lhs, uuid const& rhs ) noexcept;
+constexpr bool operator!=( uuid const& lhs, uuid const& rhs ) noexcept;
+
+constexpr bool operator<( uuid const& lhs, uuid const& rhs ) noexcept;
+constexpr bool operator>( uuid const& lhs, uuid const& rhs ) noexcept;
+constexpr bool operator<=( uuid const& lhs, uuid const& rhs ) noexcept;
+constexpr bool operator>=( uuid const& lhs, uuid const& rhs ) noexcept;
+
+constexpr std::strong_ordering operator<=>( uuid const& lhs, uuid const& rhs ) noexcept;
+
+// free swap
+
+constexpr void swap( uuid& lhs, uuid& rhs ) noexcept;
+
+// hash_value
+
+constexpr std::size_t hash_value( uuid const& u ) noexcept;
+
+}} // namespace boost::uuids
+
+// Boost.Serialization support
+
+BOOST_CLASS_IMPLEMENTATION(boost::uuids::uuid, boost::serialization::primitive_type)
+
+// std::hash support
+
+template<> struct std::hash<boost::uuids::uuid>;
+----
+
+=== Constructors
+
+```
+constexpr uuid() = default;
+```
+
+Effects: :: Zero-initializes `data_`.
+
+Postconditions: :: `is_nil()`.
+
+```
+constexpr uuid( std::uint8_t const (&r)[ 16 ] );
+```
+
+Effects: :: Initializes the elements of `data_` from the corresponding elements of `r`.
+
+NOTE: This constructor is only `constexpr` under {cpp}14 or later.
+
+Example: ::
++
+```
+uuid dns = {{ 0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8 }};
+```
+
+=== Iteration
+
+Both constant and mutable iterators are provided.
+
+```
+constexpr iterator begin() noexcept;
+```
+```
+constexpr const_iterator begin() const noexcept;
+```
+
+Returns: :: `data()`.
+
+NOTE: The non-const overload is only `constexpr` under {cpp}14 or later.
+
+```
+constexpr iterator end() noexcept;
+```
+```
+constexpr const_iterator end() const noexcept;
+```
+
+Returns: :: `data() + size()`.
+
+NOTE: The non-const overload is only `constexpr` under {cpp}14 or later.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+uuid u;
+
+for( uuid::const_iterator it = u.begin(); it != u.end(); ++it )
+{
+    uuid::value_type v = *it;
+    // do something with the octet v
+}
+
+for( uuid::iterator it = u.begin(); it != u.end(); ++it )
+{
+    *it = 0;
+}
+```
+
+=== Data
+
+```
+constexpr std::uint8_t* data() noexcept;
+```
+```
+constexpr std::uint8_t const* data() const noexcept;
+```
+
+Returns: :: `data_`.
+
+NOTE: The non-const overload is only `constexpr` under {cpp}14 or later.
+
+=== Size
+
+The size of a `uuid` (in octets) is fixed at 16.
+
+```
+constexpr size_type size() const noexcept;
+```
+```
+static constexpr size_type static_size() noexcept;
+```
+
+Returns: :: `16`.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+uuid u;
+
+assert( u.size() == 16 );
+static_assert( uuid::static_size() == 16 );
+```
+
+=== is_nil
+
+```
+constexpr bool is_nil() const noexcept;
+```
+
+Returns: :: `true` when the `uuid` is equal to the nil UUID, `{00000000-0000-0000-0000-000000000000}`, otherwise `false`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+=== Variant
+
+Three bits of a `uuid` determine the variant.
+
+```
+constexpr variant_type variant() const noexcept;
+```
+
+Returns: :: The UUID variant; usually `variant_rfc_4122` for non-nil UUIDs.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+=== Version
+
+Four bits of a `uuid` determine the version, that is the mechanism used to generate the `uuid`.
+
+```
+constexpr version_type version() const noexcept;
+```
+
+Returns: :: The UUID version.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+=== Time-based Fields
+
+```
+constexpr timestamp_type timestamp_v1() const noexcept;
+```
+
+Returns: :: The UUIDv1 timestamp (number of 100ns intervals since 00:00:00.00, 15 October 1582).
+  The value is only meaningful for version 1 UUIDs.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+```
+uuid_clock::time_point time_point_v1() const noexcept;
+```
+
+Returns: :: The timestamp of a version 1 UUID, expressed as a `<chrono>` `time_point`.
+
+```
+constexpr timestamp_type timestamp_v6() const noexcept;
+```
+
+Returns: :: The UUIDv6 timestamp (number of 100ns intervals since 00:00:00.00, 15 October 1582).
+  The value is only meaningful for version 6 UUIDs.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+```
+uuid_clock::time_point time_point_v6() const noexcept;
+```
+
+Returns: :: The timestamp of a version 6 UUID, expressed as a `<chrono>` `time_point`.
+
+```
+constexpr timestamp_type timestamp_v7() const noexcept;
+```
+
+Returns: :: The UUIDv7 timestamp (number of milliseconds since the Unix epoch - midnight 1 Jan 1970 UTC).
+  The value is only meaningful for version 7 UUIDs.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+```
+std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>
+  time_point_v7() const noexcept;
+```
+
+Returns: :: The timestamp of a version 7 UUID, expressed as a `<chrono>` `time_point`.
+
+```
+constexpr clock_seq_type clock_seq() const noexcept;
+```
+
+Returns: :: The clock sequence of a time-based UUID.
+  The value is only meaningful for time-based UUIDs (version 1 and version 6).
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+```
+constexpr node_type node_identifier() const noexcept;
+```
+
+Returns: :: The node identifier of a time-based UUID.
+  The value is only meaningful for time-based UUIDs (version 1 and version 6).
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+=== Swap
+
+```
+constexpr void swap( uuid& rhs ) noexcept;
+```
+
+Effects: :: Exchanges the values of `*this` and `rhs`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+=== Operators
+
+```
+constexpr bool operator==( uuid const& lhs, uuid const& rhs ) noexcept;
+```
+
+Returns: :: As if `std::memcmp( lhs.data(), rhs.data(), 16 ) == 0`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+```
+constexpr bool operator!=( uuid const& lhs, uuid const& rhs ) noexcept;
+```
+
+Returns: :: `!(lhs == rhs)`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+```
+constexpr bool operator<( uuid const& lhs, uuid const& rhs ) noexcept;
+```
+
+Returns: :: As if `std::memcmp( lhs.data(), rhs.data(), 16 ) < 0`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+```
+constexpr bool operator>( uuid const& lhs, uuid const& rhs ) noexcept;
+```
+
+Returns: :: `rhs < lhs`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+```
+constexpr bool operator<=( uuid const& lhs, uuid const& rhs ) noexcept;
+```
+
+Returns: :: `!(rhs < lhs)`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+```
+constexpr bool operator>=( uuid const& lhs, uuid const& rhs ) noexcept;
+```
+
+Returns: :: `!(lhs < rhs)`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+```
+constexpr std::strong_ordering operator<=>( uuid const& lhs, uuid const& rhs ) noexcept;
+```
+
+Returns: :: As if `std::memcmp( lhs.data(), rhs.data(), 16 ) \<\=> 0`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+=== Free Swap
+
+```
+constexpr void swap( uuid& lhs, uuid& rhs ) noexcept;
+```
+
+Effects: :: `lhs.swap( rhs );`
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+=== hash_value
+
+This function allows instances of `uuid` to be used with https://www.boost.org/doc/libs/release/libs/container_hash/doc/html/hash.html#ref_boostcontainer_hashhash_hpp[boost::hash].
+
+```
+constexpr std::size_t hash_value( uuid const& u ) noexcept;
+```
+
+Returns: :: The hash value of the `uuid`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+Example: ::
++
+```
+boost::unordered_flat_map<boost::uuids::uuid, int> hash_map;
+```
+
+=== Serialization
+
+```
+BOOST_CLASS_IMPLEMENTATION(boost::uuids::uuid, boost::serialization::primitive_type)
+```
+
+`uuid` is serialized as a primitive type, that is, by its string representation.
+
+=== std::hash
+
+This specialization allows instances of `uuid` to be used with `std::hash`.
+
+```
+template<> struct std::hash<boost::uuids::uuid>
+{
+    constexpr std::size_t operator()( boost::uuids::uuid const& v ) const noexcept;
+}
+```
+
+```
+constexpr std::size_t operator()( boost::uuids::uuid const& v ) const noexcept;
+```
+
+Returns: :: `boost::uuids::hash_value( v )`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later.
+
+Example: ::
++
+```
+std::unordered_map<boost::uuids::uuid, int> hash_map;
+```

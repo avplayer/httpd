@@ -1,0 +1,230 @@
+# Boost.Range library
+#
+#  Copyright Neil Groves 2009
+#  Copyright Thorsten Ottosen 2003-2004. Use, modification and
+#  distribution is subject to the Boost Software License, Version
+#  1.0. (See accompanying file LICENSE_1_0.txt or copy at
+#  http://www.boost.org/LICENSE_1_0.txt)
+#
+# For more information, see http://www.boost.org/libs/range/
+#
+
+# bring in rules for testing
+import testing ;
+
+project
+    : requirements
+        <library>/boost/assign//boost_assign
+        <library>/boost/foreach//boost_foreach
+        <library>/boost/lambda//boost_lambda
+        <library>/boost/regex//boost_regex/<link>static
+        <library>/boost/test//boost_unit_test_framework
+        <library>/boost/variant//boost_variant
+        <link>static
+        <threading>multi
+        <warnings>all
+    ;
+
+compile-fail compile_fail/iterator_range1.cpp ;
+compile-fail compile_fail/adaptor/adjacent_filtered_concept.cpp ;
+compile-fail compile_fail/adaptor/adjacent_filtered_concept2.cpp ;
+compile-fail compile_fail/adaptor/adjacent_filtered_concept3.cpp ;
+compile-fail compile_fail/adaptor/adjacent_filtered_concept4.cpp ;
+compile-fail compile_fail/adaptor/copied_concept.cpp ;
+compile-fail compile_fail/adaptor/copied_concept2.cpp ;
+compile-fail compile_fail/adaptor/copied_concept3.cpp ;
+compile-fail compile_fail/adaptor/copied_concept4.cpp ;
+compile-fail compile_fail/adaptor/reversed_concept.cpp ;
+compile-fail compile_fail/adaptor/reversed_concept2.cpp ;
+compile-fail compile_fail/adaptor/reversed_concept3.cpp ;
+compile-fail compile_fail/adaptor/reversed_concept4.cpp ;
+compile-fail compile_fail/adaptor/sliced_concept.cpp ;
+compile-fail compile_fail/adaptor/sliced_concept2.cpp ;
+compile-fail compile_fail/adaptor/sliced_concept3.cpp ;
+compile-fail compile_fail/adaptor/sliced_concept4.cpp ;
+compile-fail compile_fail/adaptor/uniqued_concept.cpp ;
+compile-fail compile_fail/adaptor/uniqued_concept2.cpp ;
+compile-fail compile_fail/adaptor/uniqued_concept3.cpp ;
+compile-fail compile_fail/adaptor/uniqued_concept4.cpp ;
+
+run adaptor_test/adjacent_filtered.cpp ;
+run adaptor_test/chained.cpp ;
+run adaptor_test/copied.cpp ;
+run adaptor_test/filtered.cpp ;
+run adaptor_test/indexed.cpp ;
+run adaptor_test/indirected.cpp ;
+run adaptor_test/map.cpp ;
+run adaptor_test/ref_unwrapped.cpp ;
+run adaptor_test/ref_unwrapped_example.cpp ;
+run adaptor_test/replaced.cpp ;
+run adaptor_test/replaced_if.cpp ;
+run adaptor_test/reversed.cpp ;
+run adaptor_test/sliced.cpp ;
+run adaptor_test/strided.cpp ;
+run adaptor_test/strided2.cpp ;
+
+run adaptor_test/ticket_6742_transformed_c4789_warning.cpp : : : <library>/boost/phoenix//boost_phoenix
+  # copy assignment operator of 'transform_iterator<boost::phoenix::actor<...' is deleted
+  <target-os>darwin:<build>no ;
+
+run adaptor_test/ticket_8676_sliced_transformed.cpp ;
+run adaptor_test/ticket_9519_strided_reversed.cpp ;
+run adaptor_test/tokenized.cpp ;
+run adaptor_test/transformed.cpp ;
+run adaptor_test/type_erased.cpp ;
+run adaptor_test/type_erased_abstract.cpp ;
+run adaptor_test/type_erased_brackets.cpp ;
+run adaptor_test/type_erased_mix_values.cpp ;
+run adaptor_test/type_erased_tparam_conv.cpp ;
+run adaptor_test/type_erased_single_pass.cpp ;
+run adaptor_test/type_erased_forward.cpp ;
+run adaptor_test/type_erased_bidirectional.cpp ;
+run adaptor_test/type_erased_random_access.cpp ;
+run adaptor_test/type_erased_transformed.cpp ;
+run adaptor_test/uniqued.cpp ;
+run adaptor_test/adjacent_filtered_example.cpp ;
+run adaptor_test/copied_example.cpp ;
+run adaptor_test/filtered_example.cpp ;
+run adaptor_test/formatted.cpp ;
+run adaptor_test/formatted_example.cpp ;
+run adaptor_test/indexed_example.cpp ;
+run adaptor_test/indirected_example.cpp ;
+run adaptor_test/map_keys_example.cpp ;
+run adaptor_test/map_values_example.cpp ;
+run adaptor_test/replaced_example.cpp ;
+run adaptor_test/replaced_if_example.cpp ;
+run adaptor_test/reversed_example.cpp ;
+run adaptor_test/sliced_example.cpp ;
+run adaptor_test/strided_example.cpp ;
+run adaptor_test/transformed_example.cpp ;
+run adaptor_test/tokenized_example.cpp ;
+run adaptor_test/type_erased_example.cpp ;
+run adaptor_test/uniqued_example.cpp ;
+
+run algorithm_test/adjacent_find.cpp ;
+run algorithm_test/binary_search.cpp ;
+run algorithm_test/copy.cpp ;
+run algorithm_test/copy_backward.cpp ;
+run algorithm_test/count.cpp ;
+run algorithm_test/count_if.cpp ;
+run algorithm_test/equal.cpp ;
+run algorithm_test/equal_range.cpp ;
+run algorithm_test/fill.cpp ;
+run algorithm_test/find.cpp ;
+run algorithm_test/find_if.cpp ;
+
+# these two tests require /bigobj in windows-cmake-test
+run algorithm_test/find_end.cpp : ;
+run algorithm_test/find_first_of.cpp : ;
+
+run algorithm_test/for_each.cpp ;
+run algorithm_test/generate.cpp ;
+run algorithm_test/heap.cpp ;
+run algorithm_test/includes.cpp ;
+run algorithm_test/inplace_merge.cpp ;
+run algorithm_test/lexicographical_compare.cpp ;
+run algorithm_test/lower_bound.cpp ;
+run algorithm_test/max_element.cpp ;
+run algorithm_test/merge.cpp ;
+run algorithm_test/min_element.cpp ;
+run algorithm_test/mismatch.cpp ;
+run algorithm_test/next_permutation.cpp ;
+run algorithm_test/nth_element.cpp ;
+run algorithm_test/partial_sort.cpp ;
+run algorithm_test/partition.cpp ;
+run algorithm_test/prev_permutation.cpp ;
+run algorithm_test/random_shuffle.cpp ;
+run algorithm_test/remove.cpp ;
+run algorithm_test/remove_copy.cpp ;
+run algorithm_test/remove_copy_if.cpp ;
+run algorithm_test/remove_if.cpp ;
+run algorithm_test/replace.cpp ;
+run algorithm_test/replace_copy.cpp ;
+run algorithm_test/replace_copy_if.cpp ;
+run algorithm_test/replace_if.cpp ;
+run algorithm_test/reverse.cpp ;
+run algorithm_test/reverse_copy.cpp ;
+run algorithm_test/rotate.cpp ;
+run algorithm_test/rotate_copy.cpp ;
+run algorithm_test/search.cpp ;
+run algorithm_test/search_n.cpp ;
+run algorithm_test/set_difference.cpp ;
+run algorithm_test/set_intersection.cpp ;
+run algorithm_test/set_symmetric_difference.cpp ;
+run algorithm_test/set_union.cpp ;
+run algorithm_test/sort.cpp ;
+run algorithm_test/stable_partition.cpp ;
+run algorithm_test/stable_sort.cpp ;
+run algorithm_test/swap_ranges.cpp ;
+run algorithm_test/transform.cpp ;
+run algorithm_test/unique.cpp ;
+run algorithm_test/unique_copy.cpp ;
+run algorithm_test/upper_bound.cpp ;
+
+run algorithm_ext_test/copy_n.cpp ;
+run algorithm_ext_test/erase.cpp ;
+run algorithm_ext_test/for_each_ext.cpp ;
+run algorithm_ext_test/insert.cpp ;
+run algorithm_ext_test/iota.cpp ;
+run algorithm_ext_test/is_sorted.cpp ;
+run algorithm_ext_test/overwrite.cpp ;
+run algorithm_ext_test/push_back.cpp ;
+run algorithm_ext_test/push_front.cpp ;
+
+run adl_conformance.cpp ;
+run adl_conformance_no_using.cpp ;
+run algorithm.cpp ;
+run algorithm_example.cpp ;
+run array.cpp ;
+#run atl.cpp : <include>$(VC71_ROOT)/atlmfc/include ;
+run begin.cpp ;
+run category.cpp ;
+run combine.cpp ;
+run compat2.cpp ;
+run compat3.cpp ;
+run const_iterator.cpp ;
+run const_ranges.cpp ;
+run const_reverse_iterator.cpp ;
+run counting_range.cpp ;
+run difference_type.cpp ;
+run end.cpp ;
+run extension_mechanism.cpp ;
+run extension_size.cpp ;
+run has_range_iterator.cpp ;
+run irange.cpp ;
+run istream_range.cpp ;
+run iterator.cpp ;
+run iterator_ext.cpp ;
+run iterator_pair.cpp ;
+run iterator_range.cpp ;
+run iterator_range_drop.cpp ;
+run iterator_range_equality_bug.cpp ;
+run iterator_range_hash.cpp ;
+run iterator_range_variant.cpp ;
+#run mfc.cpp : <include>$(VC71_ROOT)/atlmfc/include ;
+run join.cpp ;
+run mutable_iterator.cpp ;
+run partial_workaround.cpp ;
+run pointer.cpp ;
+run pointer_as_iterator.cpp ;
+run reference.cpp ;
+run result_iterator.cpp ;
+run reverse_iterator.cpp ;
+run reverse_result_iterator.cpp ;
+run reversible_range.cpp ;
+run size_type.cpp ;
+run std_container.cpp ;
+run string.cpp ;
+run sub_range.cpp ;
+run ticket_5486.cpp ;
+run ticket_5544_terminate_irange.cpp ;
+run ticket_5547.cpp ;
+run ticket_5556_is_sorted_namespace.cpp ;
+run ticket_5811_indirected_optional.cpp ;
+run ticket_6715_iterator_range_equality.cpp ;
+run ticket_6944.cpp ;
+run ticket_10336.cpp ;
+run value_type.cpp ;
+
+# `quick` target (for CI)
+alias quick : std_container ;

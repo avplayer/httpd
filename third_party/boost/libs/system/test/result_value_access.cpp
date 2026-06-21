@@ -138,7 +138,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<int*>(0) );
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
     }
 
     {
@@ -154,7 +155,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<int*>(0) );
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
     }
 
     {
@@ -168,7 +170,8 @@ int main()
 
         BOOST_TEST_THROWS( result<int>( ec ).value(), system_error );
 
-        BOOST_TEST_EQ( result<int>( ec ).operator->(), static_cast<int*>(0) );
+        BOOST_TEST_THROWS( *result<int>( ec ), system_error );
+        BOOST_TEST_THROWS( result<int>( ec ).operator->(), system_error );
     }
 
     {
@@ -184,7 +187,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), std::system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<int*>(0) );
+        BOOST_TEST_THROWS( *r, std::system_error );
+        BOOST_TEST_THROWS( r.operator->(), std::system_error );
     }
 
     {
@@ -198,7 +202,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<int*>(0) );
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
     }
 
     {
@@ -212,7 +217,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), std::system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<int*>(0) );
+        BOOST_TEST_THROWS( *r, std::system_error );
+        BOOST_TEST_THROWS( r.operator->(), std::system_error );
     }
 
     {
@@ -227,9 +233,9 @@ int main()
 #if defined(BOOST_CLANG_VERSION) && BOOST_CLANG_VERSION < 30600
 #else
         BOOST_TEST_THROWS( r.value(), E2 );
+        BOOST_TEST_THROWS( *r, E2 );
+        BOOST_TEST_THROWS( r.operator->(), E2 );
 #endif
-
-        BOOST_TEST_EQ( r.operator->(), static_cast<int*>(0) );
     }
 
     {
@@ -243,7 +249,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), std::bad_exception );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<int*>(0) );
+        BOOST_TEST_THROWS( *r, std::bad_exception );
+        BOOST_TEST_THROWS( r.operator->(), std::bad_exception );
     }
 
     {
@@ -303,7 +310,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), E );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<X*>(0) );
+        BOOST_TEST_THROWS( *r, E );
+        BOOST_TEST_THROWS( r.operator->(), E );
     }
 
     {
@@ -319,7 +327,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), E );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<X*>(0) );
+        BOOST_TEST_THROWS( *r, E );
+        BOOST_TEST_THROWS( r.operator->(), E );
     }
 
     {
@@ -333,8 +342,11 @@ int main()
 
         BOOST_TEST_THROWS( (result<X, Y>( ec ).value()), E );
 
-        BOOST_TEST_EQ( (result<X, Y>( ec ).operator->()), static_cast<X*>(0) );
+        BOOST_TEST_THROWS( *(result<X, Y>( ec )), E );
+        BOOST_TEST_THROWS( (result<X, Y>( ec )).operator->(), E );
     }
+
+    //
 
     {
         result<void> r;
@@ -346,6 +358,9 @@ int main()
         BOOST_TEST_NOT( !r );
 
         BOOST_TEST_NO_THROW( r.value() );
+
+        BOOST_TEST_NO_THROW( *r );
+        BOOST_TEST_NO_THROW( r.operator->() );
 
         BOOST_TEST( r.operator->() != 0 );
     }
@@ -361,6 +376,9 @@ int main()
 
         BOOST_TEST_NO_THROW( r.value() );
 
+        BOOST_TEST_NO_THROW( *r );
+        BOOST_TEST_NO_THROW( r.operator->() );
+
         BOOST_TEST( r.operator->() != 0 );
     }
 
@@ -372,6 +390,9 @@ int main()
         BOOST_TEST_NOT( !result<void>() );
 
         BOOST_TEST_NO_THROW( result<void>().value() );
+
+        BOOST_TEST_NO_THROW( *result<void>() );
+        BOOST_TEST_NO_THROW( result<void>().operator->() );
 
         BOOST_TEST( result<void>().operator->() != 0 );
     }
@@ -389,7 +410,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<void*>(0) );
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
     }
 
     {
@@ -405,7 +427,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<void*>(0) );
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
     }
 
     {
@@ -419,7 +442,8 @@ int main()
 
         BOOST_TEST_THROWS( result<void>( ec ).value(), system_error );
 
-        BOOST_TEST_EQ( result<void>( ec ).operator->(), static_cast<void*>(0) );
+        BOOST_TEST_THROWS( *result<void>( ec ), system_error );
+        BOOST_TEST_THROWS( result<void>( ec ).operator->(), system_error );
     }
 
     {
@@ -435,7 +459,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), std::system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<void*>(0) );
+        BOOST_TEST_THROWS( *r, std::system_error );
+        BOOST_TEST_THROWS( r.operator->(), std::system_error );
     }
 
     {
@@ -449,7 +474,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<void*>(0) );
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
     }
 
     {
@@ -463,7 +489,8 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), std::system_error );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<void*>(0) );
+        BOOST_TEST_THROWS( *r, std::system_error );
+        BOOST_TEST_THROWS( r.operator->(), std::system_error );
     }
 
     {
@@ -478,9 +505,9 @@ int main()
 #if defined(BOOST_CLANG_VERSION) && BOOST_CLANG_VERSION < 30600
 #else
         BOOST_TEST_THROWS( r.value(), E2 );
+        BOOST_TEST_THROWS( *r, E2 );
+        BOOST_TEST_THROWS( r.operator->(), E2 );
 #endif
-
-        BOOST_TEST_EQ( r.operator->(), static_cast<void*>(0) );
     }
 
     {
@@ -494,8 +521,190 @@ int main()
 
         BOOST_TEST_THROWS( r.value(), std::bad_exception );
 
-        BOOST_TEST_EQ( r.operator->(), static_cast<void*>(0) );
+        BOOST_TEST_THROWS( *r, std::bad_exception );
+        BOOST_TEST_THROWS( r.operator->(), std::bad_exception );
     }
+
+    //
+
+    {
+        int x1 = 1;
+
+        result<int&> r( x1 );
+
+        BOOST_TEST( r.has_value() );
+        BOOST_TEST( !r.has_error() );
+
+        BOOST_TEST( r );
+        BOOST_TEST_NOT( !r );
+
+        BOOST_TEST_EQ( r.value(), 1 );
+        BOOST_TEST_EQ( *r, 1 );
+
+        BOOST_TEST_EQ( r.operator->(), &*r );
+    }
+
+    {
+        int x1 = 1;
+
+        result<int&> const r( x1 );
+
+        BOOST_TEST( r.has_value() );
+        BOOST_TEST( !r.has_error() );
+
+        BOOST_TEST( r );
+        BOOST_TEST_NOT( !r );
+
+        BOOST_TEST_EQ( r.value(), 1 );
+        BOOST_TEST_EQ( *r, 1 );
+
+        BOOST_TEST_EQ( r.operator->(), &*r );
+    }
+
+    {
+        int x1 = 1;
+
+        BOOST_TEST( result<int&>( x1 ).has_value() );
+        BOOST_TEST( !result<int&>( x1 ).has_error() );
+
+        BOOST_TEST( result<int&>( x1 ) );
+        BOOST_TEST_NOT( !result<int&>( x1 ) );
+
+        BOOST_TEST_EQ( result<int&>( x1 ).value(), 1 );
+        BOOST_TEST_EQ( *result<int&>( x1 ), 1 );
+
+        BOOST_TEST_EQ( result<int&>( x1 ).operator->(), &x1 );
+    }
+
+    {
+        auto ec = make_error_code( errc::invalid_argument );
+
+        result<int&> r( ec );
+
+        BOOST_TEST( !r.has_value() );
+        BOOST_TEST( r.has_error() );
+
+        BOOST_TEST_NOT( r );
+        BOOST_TEST( !r );
+
+        BOOST_TEST_THROWS( r.value(), system_error );
+
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
+    }
+
+    {
+        auto ec = make_error_code( errc::invalid_argument );
+
+        result<int&> const r( ec );
+
+        BOOST_TEST( !r.has_value() );
+        BOOST_TEST( r.has_error() );
+
+        BOOST_TEST_NOT( r );
+        BOOST_TEST( !r );
+
+        BOOST_TEST_THROWS( r.value(), system_error );
+
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
+    }
+
+    {
+        auto ec = make_error_code( errc::invalid_argument );
+
+        BOOST_TEST( !result<int&>( ec ).has_value() );
+        BOOST_TEST( result<int&>( ec ).has_error() );
+
+        BOOST_TEST_NOT( result<int&>( ec ) );
+        BOOST_TEST( !result<int&>( ec ) );
+
+        BOOST_TEST_THROWS( result<int&>( ec ).value(), system_error );
+
+        BOOST_TEST_THROWS( *result<int&>( ec ), system_error );
+        BOOST_TEST_THROWS( result<int&>( ec ).operator->(), system_error );
+    }
+
+    {
+        auto ec = make_error_code( std::errc::invalid_argument );
+
+        result<int&, std::error_code> const r( ec );
+
+        BOOST_TEST( !r.has_value() );
+        BOOST_TEST( r.has_error() );
+
+        BOOST_TEST_NOT( r );
+        BOOST_TEST( !r );
+
+        BOOST_TEST_THROWS( r.value(), std::system_error );
+
+        BOOST_TEST_THROWS( *r, std::system_error );
+        BOOST_TEST_THROWS( r.operator->(), std::system_error );
+    }
+
+    {
+        result<int&, errc::errc_t> const r( in_place_error, errc::invalid_argument );
+
+        BOOST_TEST( !r.has_value() );
+        BOOST_TEST( r.has_error() );
+
+        BOOST_TEST_NOT( r );
+        BOOST_TEST( !r );
+
+        BOOST_TEST_THROWS( r.value(), system_error );
+
+        BOOST_TEST_THROWS( *r, system_error );
+        BOOST_TEST_THROWS( r.operator->(), system_error );
+    }
+
+    {
+        result<int&, std::errc> const r( std::errc::invalid_argument );
+
+        BOOST_TEST( !r.has_value() );
+        BOOST_TEST( r.has_error() );
+
+        BOOST_TEST_NOT( r );
+        BOOST_TEST( !r );
+
+        BOOST_TEST_THROWS( r.value(), std::system_error );
+
+        BOOST_TEST_THROWS( *r, std::system_error );
+        BOOST_TEST_THROWS( r.operator->(), std::system_error );
+    }
+
+    {
+        result<int&, std::exception_ptr> const r( std::make_exception_ptr( E2() ) );
+
+        BOOST_TEST( !r.has_value() );
+        BOOST_TEST( r.has_error() );
+
+        BOOST_TEST_NOT( r );
+        BOOST_TEST( !r );
+
+#if defined(BOOST_CLANG_VERSION) && BOOST_CLANG_VERSION < 30600
+#else
+        BOOST_TEST_THROWS( r.value(), E2 );
+        BOOST_TEST_THROWS( *r, E2 );
+        BOOST_TEST_THROWS( r.operator->(), E2 );
+#endif
+    }
+
+    {
+        result<int&, std::exception_ptr> const r( in_place_error );
+
+        BOOST_TEST( !r.has_value() );
+        BOOST_TEST( r.has_error() );
+
+        BOOST_TEST_NOT( r );
+        BOOST_TEST( !r );
+
+        BOOST_TEST_THROWS( r.value(), std::bad_exception );
+
+        BOOST_TEST_THROWS( *r, std::bad_exception );
+        BOOST_TEST_THROWS( r.operator->(), std::bad_exception );
+    }
+
+    //
 
     return boost::report_errors();
 }

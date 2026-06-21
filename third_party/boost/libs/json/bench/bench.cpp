@@ -31,13 +31,17 @@
 #include <boost/json/basic_parser_impl.hpp>
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <numeric>
-#include <cstdio>
 #include <vector>
 
 #include "test_suite.hpp"
+#include "apache_builds.hpp"
+#include "canada.hpp"
+#include "citm_catalog.hpp"
 
 /*  References
 
@@ -46,6 +50,14 @@
     http://seriot.ch/parsing_json.php
 */
 
+std::string s_tests = "ps";
+std::string s_impls = "busorn";
+std::size_t s_trials = 6;
+std::string s_branch = "";
+std::string s_alloc = "p";
+std::string s_num_mode = "i";
+std::string s_file_io = "n";
+
 namespace boost {
 namespace json {
 
@@ -53,7 +65,6 @@ using clock_type = std::chrono::steady_clock;
 
 ::test_suite::debug_stream dout(std::cerr);
 std::stringstream strout;
-parse_options popts;
 
 #if defined(__clang__)
 string_view toolset = "clang";
@@ -85,15 +96,126 @@ using file_list = std::vector<file_item>;
 
 class any_impl
 {
+    std::string name_;
+    parse_options popts_;
+    bool with_file_io_;
+
+    virtual
+    clock_type::duration
+    parse_string(file_item const& fi, std::size_t repeat) const = 0;
+
+    virtual
+    clock_type::duration
+    parse_file(file_item const& fi, std::size_t repeat) const = 0;
+
+    virtual
+    clock_type::duration
+    serialize_string(file_item const& fi, std::size_t repeat) const = 0;
+
+protected:
+    clock_type::duration
+    skip() const
+    {
+        return clock_type::duration::zero();
+    }
+
+    parse_options const&
+    get_parse_options() const noexcept
+    {
+        return popts_;
+    }
+
 public:
+    using operation = auto (any_impl::*)
+        (file_item const& fi, std::size_t repeat) const
+        -> clock_type::duration;
+
+    any_impl(
+        string_view base_name,
+        string_view flavor,
+        bool is_boost,
+        bool is_pool,
+        bool with_file_io,
+        parse_options const& popts)
+        : popts_(popts)
+        , with_file_io_(with_file_io)
+    {
+        std::string extra;
+        switch( popts_.numbers )
+        {
+        case number_precision::precise:
+            extra = "precise numbers";
+            break;
+        case number_precision::none:
+            extra = "no numbers";
+            break;
+        default:
+            break;
+        }
+
+        if( with_file_io_ )
+        {
+            if( !extra.empty() )
+                extra += '+';
+            extra += "file IO";
+        }
+
+        if( is_pool )
+        {
+            if( !extra.empty() )
+                extra = '+' + extra;
+            extra = "pool" + extra;
+        }
+
+        if( !flavor.empty() )
+        {
+            if( !extra.empty() )
+                extra = '+' + extra;
+            extra.insert( extra.begin(), flavor.begin(), flavor.end() );
+        }
+
+        if( !extra.empty() )
+            extra = " (" + extra + ')';
+
+        if( is_boost && !s_branch.empty() )
+            extra += ' ' + s_branch;
+
+        name_ = base_name;
+        name_ += extra;
+    }
+
     virtual ~any_impl() = default;
-    virtual string_view name() const noexcept = 0;
-    virtual void parse(string_view s, std::size_t repeat) const = 0;
-    virtual void serialize(string_view s, std::size_t repeat) const = 0;
+
+    clock_type::duration
+    bench(string_view verb, file_item const& fi, std::size_t repeat) const
+    {
+
+        if(verb == "Parse")
+        {
+            if( with_file_io_ )
+                return parse_file(fi, repeat);
+            else
+                return parse_string(fi, repeat);
+        }
+        else
+        {
+            BOOST_ASSERT( verb == "Serialize" );
+            if( with_file_io_ )
+                return skip();
+            else
+                return serialize_string(fi, repeat);
+        }
+    }
+
+    string_view
+    name() const noexcept
+    {
+        return name_;
+    }
 };
 
-using impl_list = std::vector<
-    std::unique_ptr<any_impl const>>;
+using impl_ptr = std::unique_ptr<any_impl const>;
+using impl_list = std::vector<impl_ptr>;
 
 std::string
 load_file(char const* path)
@@ -124,20 +246,13 @@ template<
     class Period,
     class F>
 sample
-run_for(
-    std::chrono::duration<
-        Rep, Period> interval,
-    F&& f)
+run_for(std::chrono::duration<Rep, Period> interval, F&& f)
 {
-    using clock_type =
-        std::chrono::high_resolution_clock;
-    auto const when = clock_type::now();
-    auto elapsed = clock_type::now() - when;
+    clock_type::duration elapsed(0);
     std::size_t n = 0;
     do
     {
-        f();
-        elapsed = clock_type::now() - when;
+        elapsed += f();
         ++n;
     }
     while(elapsed < interval);
@@ -145,6 +260,27 @@ run_for(
         std::chrono::duration_cast<
             std::chrono::milliseconds>(
                 elapsed).count()), 0 };
+}
+
+std::size_t
+megabytes_per_second(
+    file_item const& file, std::size_t calls, std::size_t millis)
+{
+    double result = file.text.size();
+    result /= 1024 * 1024; // size in megabytes
+    result *= calls;
+    result /= millis; // mb per ms
+    result *= 1000; // mb per s
+    return static_cast<std::size_t>(0.5 + result); // round up
+}
+
+std::ostream&
+print_prefix(
+    std::ostream& os, file_item const& file, any_impl const& impl,
+    string_view verb)
+{
+    return os << verb << " " << file.name << "," << toolset << " " <<
+        arch << "," << impl.name();
 }
 
 void
@@ -159,36 +295,39 @@ bench(
         for(unsigned j = 0; j < vi.size(); ++j)
         {
             trial.clear();
-            std::size_t repeat = 1000;
+            std::size_t repeat = 1;
+
+            auto const f = [&]{
+                return vi[j].get()->bench(verb, vf[i], repeat);
+            };
+
+            // helps with the caching, which reduces noise; also, we determine
+            // if this configuration should be skipped altogether
+            auto const elapsed = f();
+            if( elapsed == std::chrono::milliseconds::zero() )
+            {
+                print_prefix(dout, vf[i], *vi[j], verb)
+                    << "," << "N/A"
+                    << "," << "N/A"
+                    << "," << "N/A"
+                    << "\n";
+                print_prefix(strout, vf[i], *vi[j], verb)
+                    << "," << "N/A" << "\n";
+                continue;
+            }
+
+            repeat = 1000;
             for(unsigned k = 0; k < Trials; ++k)
             {
-                auto result = run_for(
-                    std::chrono::seconds(5),
-                    [&]
-                    {
-                        if(verb == "Parse")
-                            vi[j]->parse(
-                                vf[i].text,
-                                repeat);
-                        else if(verb == "Serialize")
-                            vi[j]->serialize(
-                                vf[i].text,
-                                repeat);
-                    });
+                auto result = run_for(std::chrono::seconds(5), f);
                 result.calls *= repeat;
-                result.mbs = static_cast<
-                    std::size_t>(( 0.5 + 1000.0 *
-                        result.calls *
-                        vf[i].text.size() /
-                        result.millis / 1024 / 1024));
-                dout <<
-                    verb << " " << vf[i].name << "," <<
-                    toolset << " " << arch << "," <<
-                    vi[j]->name() << "," <<
-                    result.calls << "," <<
-                    result.millis << "," <<
-                    result.mbs <<
-                    "\n";
+                result.mbs = megabytes_per_second(
+                    vf[i], result.calls, result.millis);
+                print_prefix(dout, vf[i], *vi[j], verb)
+                    << "," << result.calls
+                    << "," << result.millis
+                    << "," << result.mbs
+                    << "\n";
                 trial.push_back(result);
                 // adjust repeat to avoid overlong tests
                 repeat = 250 * result.calls / result.millis;
@@ -198,173 +337,135 @@ bench(
             std::sort(
                 trial.begin(),
                 trial.end(),
-                []( sample const& lhs,
-                    sample const& rhs)
+                [](sample const& lhs, sample const& rhs)
                 {
                     return lhs.mbs < rhs.mbs;
                 });
             if(Trials >= 6)
             {
                 // discard worst 2
-                trial.erase(
-                    trial.begin(),
-                    trial.begin() + 2);
+                trial.erase(trial.begin(), trial.begin() + 2);
                 // discard best 1
-                trial.resize(3);
+                trial.resize(trial.size() - 1);
             }
             else if(Trials > 3)
             {
-                trial.erase(
-                    trial.begin(),
-                    trial.begin() + Trials - 3);
+                trial.erase(trial.begin(), trial.begin() + Trials - 3);
             }
             // average
-            auto const calls =
-                std::accumulate(
+            auto const calls = std::accumulate(
                 trial.begin(), trial.end(),
                 std::size_t{},
-                []( std::size_t lhs,
-                    sample const& rhs)
+                [](std::size_t lhs, sample const& rhs)
                 {
                     return lhs + rhs.calls;
                 });
-            auto const millis =
-                std::accumulate(
+            auto const millis = std::accumulate(
                 trial.begin(), trial.end(),
                 std::size_t{},
-                []( std::size_t lhs,
-                    sample const& rhs)
+                [](std::size_t lhs, sample const& rhs)
                 {
                     return lhs + rhs.millis;
                 });
-            auto const mbs = static_cast<
-                std::size_t>(( 0.5 + 1000.0 *
-                calls * vf[i].text.size() /
-                    millis / 1024 / 1024));
-            strout <<
-                verb << " " << vf[i].name << "," <<
-                toolset << " " << arch << "," <<
-                vi[j]->name() << "," <<
-                mbs <<
-                "\n";
+            auto const mbs = megabytes_per_second(vf[i], calls, millis);
+            print_prefix(strout, vf[i], *vi[j], verb) << "," << mbs << "\n";
         }
     }
 }
 
 //----------------------------------------------------------
 
-class boost_default_impl : public any_impl
+class base_boost_impl : public any_impl
 {
-    std::string name_;
+protected:
+    bool is_pool_;
 
 public:
-    boost_default_impl(
-        std::string const& branch)
-    {
-        name_ = "boost";
-        if(! branch.empty())
-            name_ += " " + branch;
-    }
-
-    string_view
-    name() const noexcept override
-    {
-        return name_;
-    }
-
-    void
-    parse(
-        string_view s,
-        std::size_t repeat) const override
-    {
-        stream_parser p({}, popts);
-        while(repeat--)
-        {
-            p.reset();
-            error_code ec;
-            p.write(s.data(), s.size(), ec);
-            if(! ec)
-                p.finish(ec);
-            if(! ec)
-                auto jv = p.release();
-        }
-    }
-
-    void
-    serialize(
-        string_view s,
-        std::size_t repeat) const override
-    {
-        auto jv = json::parse(s);
-        serializer sr;
-        string out;
-        out.reserve(512);
-        while(repeat--)
-        {
-            sr.reset(&jv);
-            out.clear();
-            for(;;)
-            {
-                out.grow(sr.read(
-                    out.end(),
-                    out.capacity() -
-                        out.size()).size());
-                if(sr.done())
-                    break;
-                out.reserve(
-                    out.capacity() + 1);
-            }
-        }
-    }
+    base_boost_impl(
+        string_view flavor,
+        bool is_pool,
+        bool with_file_io,
+        parse_options const& popts)
+        : any_impl("boost", flavor, true, is_pool, with_file_io, popts)
+        , is_pool_(is_pool)
+    {}
 };
 
 //----------------------------------------------------------
 
-class boost_pool_impl : public any_impl
+class boost_impl : public base_boost_impl
 {
-    std::string name_;
-
 public:
-    boost_pool_impl(
-        std::string const& branch)
-    {
-        name_ = "boost (pool)";
-        if(! branch.empty())
-            name_ += " " + branch;
-    }
+    boost_impl(bool is_pool, bool with_file_io, parse_options const& popts)
+        : base_boost_impl("", is_pool, with_file_io, popts)
+    {}
 
-    string_view
-    name() const noexcept override
+    clock_type::duration
+    parse_string(file_item const& fi, std::size_t repeat) const override
     {
-        return name_;
-    }
-
-    void
-    parse(
-        string_view s,
-        std::size_t repeat) const override
-    {
-        stream_parser p({}, popts);
+        auto const start = clock_type::now();
+        parser p( {}, get_parse_options() );
         while(repeat--)
         {
             monotonic_resource mr;
-            p.reset(&mr);
-            error_code ec;
-            p.write(s.data(), s.size(), ec);
-            if(! ec)
-                p.finish(ec);
-            if(! ec)
-                auto jv = p.release();
+            storage_ptr sp;
+            if( is_pool_ )
+                sp = &mr;
+            p.reset( std::move(sp) );
+
+            p.write( fi.text.data(), fi.text.size() );
+            auto jv = p.release();
+            (void)jv;
         }
+        return clock_type::now() - start;
     }
 
-    void
-    serialize(
-        string_view s,
-        std::size_t repeat) const override
+    clock_type::duration
+    parse_file(file_item const& fi, std::size_t repeat) const override
+    {
+        auto const start = clock_type::now();
+        stream_parser p( {}, get_parse_options() );
+        char s[ BOOST_JSON_STACK_BUFFER_SIZE];
+        while(repeat--)
+        {
+            monotonic_resource mr;
+            storage_ptr sp;
+            if( is_pool_ )
+                sp = &mr;
+            p.reset( std::move(sp) );
+
+            FILE* f = fopen(fi.name.data(), "rb");
+
+            while( true )
+            {
+                std::size_t const sz = fread(s, 1, sizeof(s), f);
+                if( ferror(f) )
+                    break;
+
+                p.write(s, sz);
+
+                if( feof(f) )
+                    break;
+            }
+
+            p.finish();
+            auto jv = p.release();
+
+            fclose(f);
+        }
+        return clock_type::now() - start;
+    }
+
+    clock_type::duration
+    serialize_string(file_item const& fi, std::size_t repeat) const override
     {
         monotonic_resource mr;
-        auto jv = json::parse(s, &mr);
+        storage_ptr sp;
+        if( is_pool_ )
+            sp = &mr;
+        value jv = json::parse( fi.text, std::move(sp) );
+
+        auto const start = clock_type::now();
         serializer sr;
         string out;
         out.reserve(512);
@@ -384,12 +485,13 @@ public:
                     out.capacity() + 1);
             }
         }
+        return clock_type::now() - start;
     }
 };
 
 //----------------------------------------------------------
 
-class boost_null_impl : public any_impl
+class boost_null_impl : public base_boost_impl
 {
     struct null_parser
     {
@@ -400,29 +502,29 @@ class boost_null_impl : public any_impl
             constexpr static std::size_t max_key_size = std::size_t(-1);
             constexpr static std::size_t max_string_size = std::size_t(-1);
 
-            bool on_document_begin(error_code&) { return true; }
-            bool on_document_end(error_code&) { return true; }
-            bool on_object_begin(error_code&) { return true; }
-            bool on_object_end(std::size_t, error_code&) { return true; }
-            bool on_array_begin(error_code&) { return true; }
-            bool on_array_end(std::size_t, error_code&) { return true; }
-            bool on_key_part(string_view, std::size_t, error_code&) { return true; }
-            bool on_key( string_view, std::size_t, error_code&) { return true; }
-            bool on_string_part(string_view, std::size_t, error_code&) { return true; }
-            bool on_string(string_view, std::size_t, error_code&) { return true; }
-            bool on_number_part(string_view, error_code&) { return true; }
-            bool on_int64(std::int64_t, string_view, error_code&) { return true; }
-            bool on_uint64(std::uint64_t, string_view, error_code&) { return true; }
-            bool on_double(double, string_view, error_code&) { return true; }
-            bool on_bool(bool, error_code&) { return true; }
-            bool on_null(error_code&) { return true; }
-            bool on_comment_part(string_view, error_code&) { return true; }
-            bool on_comment(string_view, error_code&) { return true; }
+            bool on_document_begin(system::error_code&) { return true; }
+            bool on_document_end(system::error_code&) { return true; }
+            bool on_object_begin(system::error_code&) { return true; }
+            bool on_object_end(std::size_t, system::error_code&) { return true; }
+            bool on_array_begin(system::error_code&) { return true; }
+            bool on_array_end(std::size_t, system::error_code&) { return true; }
+            bool on_key_part(string_view, std::size_t, system::error_code&) { return true; }
+            bool on_key( string_view, std::size_t, system::error_code&) { return true; }
+            bool on_string_part(string_view, std::size_t, system::error_code&) { return true; }
+            bool on_string(string_view, std::size_t, system::error_code&) { return true; }
+            bool on_number_part(string_view, system::error_code&) { return true; }
+            bool on_int64(std::int64_t, string_view, system::error_code&) { return true; }
+            bool on_uint64(std::uint64_t, string_view, system::error_code&) { return true; }
+            bool on_double(double, string_view, system::error_code&) { return true; }
+            bool on_bool(bool, system::error_code&) { return true; }
+            bool on_null(system::error_code&) { return true; }
+            bool on_comment_part(string_view, system::error_code&) { return true; }
+            bool on_comment(string_view, system::error_code&) { return true; }
         };
 
         basic_parser<handler> p_;
 
-        null_parser()
+        null_parser(parse_options const& popts)
             : p_(popts)
         {
         }
@@ -437,7 +539,7 @@ class boost_null_impl : public any_impl
         write(
             char const* data,
             std::size_t size,
-            error_code& ec)
+            system::error_code& ec)
         {
             auto const n = p_.write_some(
                 false, data, size, ec);
@@ -445,171 +547,315 @@ class boost_null_impl : public any_impl
                 ec = error::extra_data;
             return n;
         }
+
+        std::size_t
+        write_some(
+            char const* data,
+            std::size_t size,
+            system::error_code& ec)
+        {
+            return p_.write_some(
+                true, data, size, ec);
+        }
+
+        void
+        finish(system::error_code& ec)
+        {
+            p_.write_some(false, nullptr, 0, ec);
+        }
     };
 
-    std::string name_;
-
 public:
-    boost_null_impl(
-        std::string const& branch)
-    {
-        name_ = "boost (null)";
-        if(! branch.empty())
-            name_ += " " + branch;
-    }
+    boost_null_impl(bool with_file_io, parse_options const& popts)
+        : base_boost_impl("null", false, with_file_io, popts)
+    {}
 
-    string_view
-    name() const noexcept override
+    clock_type::duration
+    parse_string(file_item const& fi, std::size_t repeat) const override
     {
-        return name_;
-    }
-
-    void
-    parse(
-        string_view s,
-        std::size_t repeat) const override
-    {
-        null_parser p;
+        auto const start = clock_type::now();
+        null_parser p( get_parse_options() );
         while(repeat--)
         {
             p.reset();
-            error_code ec;
-            p.write(s.data(), s.size(), ec);
-            BOOST_ASSERT(! ec);
+            system::error_code ec;
+            p.write(fi.text.data(), fi.text.size(), ec);
+            if( ec.failed() )
+                throw system::system_error( ec );
         }
+        return clock_type::now() - start;
     }
 
-    void
-    serialize(
-        string_view, std::size_t) const override
+    clock_type::duration
+    parse_file(file_item const& fi, std::size_t repeat) const override
     {
+        auto const start = clock_type::now();
+        null_parser p( get_parse_options() );
+        char s[ BOOST_JSON_STACK_BUFFER_SIZE];
+        while(repeat--)
+        {
+            p.reset();
+
+            FILE* f = fopen(fi.name.data(), "rb");
+
+            system::error_code ec;
+            while( true )
+            {
+                std::size_t const sz = fread(s, 1, sizeof(s), f);
+                if( ferror(f) )
+                {
+                    ec = std::io_errc::stream;
+                    break;
+                }
+
+                p.write_some( s, sz, ec );
+                if( ec.failed() )
+                    break;
+
+                if( feof(f) )
+                    break;
+            }
+
+            fclose(f);
+
+            if( ec.failed() )
+                throw system::system_error( ec );
+        }
+        return clock_type::now() - start;
+    }
+
+    clock_type::duration
+    serialize_string(file_item const&, std::size_t) const override
+    {
+        return skip();
     }
 };
 
 //----------------------------------------------------------
 
-class boost_simple_impl : public any_impl
+class boost_simple_impl : public base_boost_impl
 {
-    std::string name_;
-
 public:
     boost_simple_impl(
-        std::string const& branch)
-    {
-        name_ = "boost (convenient)";
-        if(! branch.empty())
-            name_ += " " + branch;
-    }
+        bool is_pool, bool with_file_io, parse_options const& popts)
+        : base_boost_impl("convenient", is_pool, with_file_io, popts)
+    {}
 
-    string_view
-    name() const noexcept override
+    clock_type::duration
+    parse_string(file_item const& fi, std::size_t repeat) const override
     {
-        return name_;
-    }
-
-    void
-    parse(
-        string_view s,
-        std::size_t repeat) const override
-    {
+        auto const start = clock_type::now();
         while(repeat--)
         {
-            error_code ec;
-            auto jv = json::parse(s, ec, {}, popts);
+            monotonic_resource mr;
+            storage_ptr sp;
+            if( is_pool_ )
+                sp = &mr;
+
+            auto jv = json::parse(
+                fi.text, std::move(sp), get_parse_options() );
             (void)jv;
         }
+        return clock_type::now() - start;
     }
 
-    void
-    serialize(
-        string_view s,
-        std::size_t repeat) const override
+    clock_type::duration
+    parse_file(file_item const& fi, std::size_t repeat) const override
     {
-        auto jv = json::parse(s);
+        auto const start = clock_type::now();
+        while(repeat--)
+        {
+            std::ifstream is( fi.name, std::ios::in | std::ios::binary );
+
+            monotonic_resource mr;
+            storage_ptr sp;
+            if( is_pool_ )
+                sp = &mr;
+
+            auto jv = json::parse( is, std::move(sp), get_parse_options() );
+            (void)jv;
+        }
+        return clock_type::now() - start;
+    }
+
+    clock_type::duration
+    serialize_string(file_item const& fi, std::size_t repeat) const override
+    {
+        monotonic_resource mr;
+        storage_ptr sp;
+        if( is_pool_ )
+            sp = &mr;
+        auto jv = json::parse( fi.text, std::move(sp) );
+
+        auto const start = clock_type::now();
+        std::string out;
+        while(repeat--)
+            out = json::serialize(jv);
+        return clock_type::now() - start;
+    }
+};
+
+//----------------------------------------------------------
+
+class boost_operator_impl : public base_boost_impl
+{
+public:
+    boost_operator_impl(
+        bool is_pool, bool with_file_io, parse_options const& popts)
+        : base_boost_impl("operators", is_pool, with_file_io, popts)
+    {}
+
+    clock_type::duration
+    parse_string(file_item const& fi, std::size_t repeat) const override
+    {
+        std::istringstream is(fi.text);
+        is.exceptions(std::ios::failbit);
+
+        auto const start = clock_type::now();
+        while(repeat--)
+        {
+            monotonic_resource mr;
+            storage_ptr sp;
+            if( is_pool_ )
+                sp = &mr;
+
+            value jv( std::move(sp) );
+            is.seekg(0);
+            is >> get_parse_options() >> jv;
+        }
+        return clock_type::now() - start;
+    }
+
+    clock_type::duration
+    parse_file(file_item const& fi, std::size_t repeat) const override
+    {
+        auto const start = clock_type::now();
+        while(repeat--)
+        {
+            monotonic_resource mr;
+            storage_ptr sp;
+            if( is_pool_ )
+                sp = &mr;
+
+            std::ifstream is( fi.name, std::ios::in | std::ios::binary );
+            is.exceptions(std::ios::failbit);
+
+            value jv( std::move(sp) );
+            is >> get_parse_options() >> jv;
+        }
+        return clock_type::now() - start;
+    }
+
+    clock_type::duration
+    serialize_string(file_item const& fi, std::size_t repeat) const override
+    {
+        monotonic_resource mr;
+        storage_ptr sp;
+        if( is_pool_ )
+            sp = &mr;
+
+        auto jv = json::parse( fi.text, std::move(sp) );
+
+        auto const start = clock_type::now();
         std::string out;
         while(repeat--)
         {
-            out = json::serialize(jv);
+            std::ostringstream os;
+            os.exceptions(std::ios::failbit);
+            os << jv;
+            out = os.str();
         }
+        return clock_type::now() - start;
     }
 };
 
 //----------------------------------------------------------
 
 #ifdef BOOST_JSON_HAS_RAPIDJSON
-struct rapidjson_crt_impl : public any_impl
+template<class Allocator, bool FullPrecision>
+struct rapidjson_impl : public any_impl
 {
-    string_view
-    name() const noexcept override
+    static constexpr unsigned parse_flags
+        = rapidjson::kParseDefaultFlags
+        | (FullPrecision
+                ? rapidjson::kParseFullPrecisionFlag
+                : rapidjson::kParseNoFlags);
+
+    static
+    parse_options
+    make_parse_options() noexcept
     {
-        return "rapidjson";
+        parse_options opts;
+        opts.numbers = FullPrecision
+            ? number_precision::precise : number_precision::imprecise;
+        return opts;
     }
 
-    void
-    parse(
-        string_view s, std::size_t repeat) const override
+    rapidjson_impl(bool with_file_io)
+        : any_impl(
+            "rapidjson",
+            "",
+            false,
+            std::is_same<Allocator, RAPIDJSON_DEFAULT_ALLOCATOR>::value,
+            with_file_io,
+            make_parse_options() )
+    {}
+
+    clock_type::duration
+    parse_string(file_item const& fi, std::size_t repeat) const override
     {
         using namespace rapidjson;
+        auto const start = clock_type::now();
         while(repeat--)
         {
-            CrtAllocator alloc;
-            GenericDocument<
-                UTF8<>, CrtAllocator> d(&alloc);
-            d.Parse(s.data(), s.size());
+            Allocator alloc;
+            GenericDocument<UTF8<>, Allocator> d(&alloc);
+            d.template Parse<rapidjson_impl::parse_flags>(
+                fi.text.data(), fi.text.size() );
         }
+        return clock_type::now() - start;
     }
 
-    void
-    serialize(string_view s, std::size_t repeat) const override
+    clock_type::duration
+    parse_file(file_item const& fi, std::size_t repeat) const override
     {
         using namespace rapidjson;
-        CrtAllocator alloc;
-        GenericDocument<
-            UTF8<>, CrtAllocator> d(&alloc);
-        d.Parse(s.data(), s.size());
+
+        auto const start = clock_type::now();
+        char* s = new char[ fi.text.size() ];
+        std::unique_ptr<char[]> holder(s);
+
+        while(repeat--)
+        {
+            FILE* f = fopen(fi.name.data(), "rb");
+            std::size_t const sz = fread(s, 1, fi.text.size(), f);
+
+            Allocator alloc;
+            GenericDocument<UTF8<>, Allocator> d(&alloc);
+            d.template Parse<rapidjson_impl::parse_flags>(s, sz);
+
+            fclose(f);
+        }
+        return clock_type::now() - start;
+    }
+
+    clock_type::duration
+    serialize_string(file_item const& fi, std::size_t repeat) const override
+    {
+        using namespace rapidjson;
+        Allocator alloc;
+        GenericDocument<UTF8<>, Allocator> d(&alloc);
+        d.template Parse<rapidjson_impl::parse_flags>( fi.text.data(), fi.text.size() );
+
+        auto const start = clock_type::now();
         rapidjson::StringBuffer st;
         while(repeat--)
         {
             st.Clear();
-            rapidjson::Writer<
-                rapidjson::StringBuffer> wr(st);
+            rapidjson::Writer<rapidjson::StringBuffer> wr(st);
             d.Accept(wr);
         }
-    }
-};
-
-struct rapidjson_memory_impl : public any_impl
-{
-    string_view
-    name() const noexcept override
-    {
-        return "rapidjson (pool)";
-    }
-
-    void
-    parse(
-        string_view s, std::size_t repeat) const override
-    {
-        while(repeat--)
-        {
-            rapidjson::Document d;
-            d.Parse(s.data(), s.size());
-        }
-    }
-
-    void
-    serialize(string_view s, std::size_t repeat) const override
-    {
-        rapidjson::Document d;
-        d.Parse(s.data(), s.size());
-        rapidjson::StringBuffer st;
-        while(repeat--)
-        {
-            st.Clear();
-            rapidjson::Writer<
-                rapidjson::StringBuffer> wr(st);
-            d.Accept(wr);
-        }
+        return clock_type::now() - start;
     }
 };
 #endif // BOOST_JSON_HAS_RAPIDJSON
@@ -619,30 +865,55 @@ struct rapidjson_memory_impl : public any_impl
 #ifdef BOOST_JSON_HAS_NLOHMANN_JSON
 struct nlohmann_impl : public any_impl
 {
-    string_view
-    name() const noexcept override
-    {
-        return "nlohmann";
-    }
+    nlohmann_impl(bool with_file_io)
+        : any_impl(
+            "nlohmann",
+            "",
+            false,
+            false,
+            with_file_io,
+            parse_options() )
+    {}
 
-    void
-    parse(string_view s, std::size_t repeat) const override
+    clock_type::duration
+    parse_string(file_item const& fi, std::size_t repeat) const override
     {
+        auto const start = clock_type::now();
         while(repeat--)
         {
-            auto jv = nlohmann::json::parse(
-                s.begin(), s.end());
+            auto jv = nlohmann::json::parse( fi.text.begin(), fi.text.end() );
         }
+        return clock_type::now() - start;
     }
 
-    void
-    serialize(string_view s, std::size_t repeat) const override
+    clock_type::duration
+    parse_file(file_item const& fi, std::size_t repeat) const override
     {
-        auto jv = nlohmann::json::parse(
-            s.begin(), s.end());
+        auto const start = clock_type::now();
+        char* s = new char[ fi.text.size() ];
+        std::unique_ptr<char[]> holder(s);
+
+        while(repeat--)
+        {
+            FILE* f = fopen(fi.name.data(), "rb");
+            std::size_t const sz = fread(s, 1, fi.text.size(), f);
+
+            auto jv = nlohmann::json::parse(s, s + sz);
+
+            fclose(f);
+        }
+        return clock_type::now() - start;
+    }
+
+    clock_type::duration
+    serialize_string(file_item const& fi, std::size_t repeat) const override
+    {
+        auto jv = nlohmann::json::parse( fi.text.begin(), fi.text.end() );
+
+        auto const start = clock_type::now();
         while(repeat--)
             auto st = jv.dump();
-
+        return clock_type::now() - start;
     }
 };
 #endif // BOOST_JSON_HAS_NLOHMANN_JSON
@@ -654,126 +925,140 @@ struct nlohmann_impl : public any_impl
 
 using namespace boost::json;
 
-std::string s_tests = "ps";
-std::string s_impls = "bdrcn";
-std::size_t s_trials = 6;
-std::string s_branch = "";
-
-static bool parse_option( char const * s )
+static bool parse_option( char const* s )
 {
     if( *s == 0 )
-    {
         return false;
-    }
 
     char opt = *s++;
 
     if( *s++ != ':' )
-    {
         return false;
-    }
 
     switch( opt )
     {
     case 't':
-
         s_tests = s;
         break;
 
     case 'i':
-
         s_impls = s;
         break;
 
     case 'n':
-
         {
             int k = std::atoi( s );
 
             if( k > 0 )
-            {
                 s_trials = k;
-            }
             else
-            {
                 return false;
-            }
         }
-
         break;
 
     case 'b':
         s_branch = s;
         break;
+
+    case 'a':
+        s_alloc = s;
+        break;
+
     case 'm':
-        switch( *s )
-        {
-        case 'i':
-            popts.numbers = number_precision::imprecise;
-            break;
-        case 'p':
-            popts.numbers = number_precision::precise;
-            break;
-        case 'n':
-            popts.numbers = number_precision::none;
-            break;
-        default:
-            return false;
-        }
+        s_num_mode = s;
+        break;
+
+    case 'f':
+        s_file_io = s;
         break;
     }
 
     return true;
 }
 
-static bool add_impl( impl_list & vi, char impl )
+bool add_impl(
+    impl_list & vi, char kind, char alloc, char io, char num)
 {
-    switch( impl )
+    parse_options popts;
+    switch(num)
+    {
+    case 'i':
+        popts.numbers = number_precision::imprecise;
+        break;
+    case 'p':
+        popts.numbers = number_precision::precise;
+        break;
+    case 'n':
+        popts.numbers = number_precision::none;
+        break;
+    default:
+        return false;
+    }
+    bool const with_file_io = io == 'y';
+    bool const is_pool = alloc == 'p';
+
+    impl_ptr impl;
+    switch( kind )
     {
     case 'b':
-
-        vi.emplace_back(new boost_pool_impl(s_branch));
-        break;
-
-    case 'd':
-
-        vi.emplace_back(new boost_default_impl(s_branch));
+        impl.reset(
+            new boost_impl(is_pool, with_file_io, popts) );
         break;
 
     case 'u':
-
-        vi.emplace_back(new boost_null_impl(s_branch));
+        impl.reset(
+            new boost_null_impl(with_file_io, popts) );
         break;
 
     case 's':
-        vi.emplace_back(new boost_simple_impl(s_branch));
+        impl.reset(
+            new boost_simple_impl(
+                is_pool, with_file_io, popts) );
+        break;
+
+    case 'o':
+        impl.reset(
+            new boost_operator_impl(
+                is_pool, with_file_io, popts) );
         break;
 
 #ifdef BOOST_JSON_HAS_RAPIDJSON
     case 'r':
-
-        vi.emplace_back(new rapidjson_memory_impl);
-        break;
-
-    case 'c':
-
-        vi.emplace_back(new rapidjson_crt_impl);
+        if(is_pool)
+        {
+            using Allocator = RAPIDJSON_DEFAULT_ALLOCATOR;
+            if(popts.numbers == number_precision::precise)
+                impl.reset(
+                    new rapidjson_impl<Allocator, true>(with_file_io) );
+            else
+                impl.reset(
+                    new rapidjson_impl<Allocator, false>(with_file_io) );
+        }
+        else
+        {
+            using Allocator = rapidjson::CrtAllocator;
+            if(popts.numbers == number_precision::precise)
+                impl.reset(
+                    new rapidjson_impl<Allocator, true>(with_file_io) );
+            else
+                impl.reset(
+                    new rapidjson_impl<Allocator, false>( with_file_io) );
+        }
         break;
 #endif // BOOST_JSON_HAS_RAPIDJSON
 
 #ifdef BOOST_JSON_HAS_NLOHMANN_JSON
     case 'n':
-
-        vi.emplace_back(new nlohmann_impl);
+        impl.reset( new nlohmann_impl(with_file_io) );
         break;
 #endif // BOOST_JSON_HAS_NLOHMANN_JSON
 
     default:
-
-        std::cerr << "Unknown implementation: '" << impl << "'\n";
+        std::cerr << "Unknown implementation: '" << kind << "'\n";
         return false;
     }
 
+    vi.emplace_back( std::move(impl) );
     return true;
 }
 
@@ -782,17 +1067,14 @@ static bool do_test( file_list const & vf, impl_list const & vi, char test )
     switch( test )
     {
     case 'p':
-
         bench("Parse", vf, vi, s_trials);
         break;
 
     case 's':
-
         bench("Serialize", vf, vi, s_trials);
         break;
 
     default:
-
         std::cerr << "Unknown test type: '" << test << "'\n";
         return false;
     }
@@ -810,28 +1092,35 @@ main(
         std::cerr <<
             "Usage: bench [options...] <file>...\n"
             "\n"
-            "Options:  -t:[p][s]            Test parsing, serialization or both\n"
-			"                                 (default both)\n"
-            "          -i:[b][d][r][c][n]   Test the specified implementations\n"
-            "                                 (b: Boost.JSON, pool storage)\n"
-            "                                 (d: Boost.JSON, default storage)\n"
-            "                                 (u: Boost.JSON, null parser)\n"
-            "                                 (s: Boost.JSON, convenient functions)\n"
+            "Options: -t:[p][s]                Test parsing, serialization or both\n"
+            "            (default both)\n"
+            "         -i:[b][u][s][o][d][r][n] Test the specified implementations\n"
+            "            (b: Boost.JSON)\n"
+            "            (u: Boost.JSON, null parser)\n"
+            "            (s: Boost.JSON, convenient functions)\n"
+            "            (o: Boost.JSON, stream operators)\n"
 #ifdef BOOST_JSON_HAS_RAPIDJSON
-            "                                 (r: RapidJSON, memory storage)\n"
-            "                                 (c: RapidJSON, CRT storage)\n"
+            "            (r: RapidJSON)\n"
 #endif // BOOST_JSON_HAS_RAPIDJSON
 #ifdef BOOST_JSON_HAS_NLOHMANN_JSON
-            "                                 (n: nlohmann/json)\n"
+            "            (n: nlohmann/json)\n"
 #endif // BOOST_JSON_HAS_NLOHMANN_JSON
-			"                                 (default all)\n"
-            "          -n:<number>          Number of trials (default 6)\n"
-            "          -b:<branch>          Branch label for boost implementations\n"
-            "          -m:(i|p|n)           Number parsing mode\n"
-            "                                 (i: imprecise)\n"
-            "                                 (p: precise)\n"
-            "                                 (n: none)\n"
-            "                                 (default imprecise)\n"
+            "            (default all)\n"
+            "         -a:[p][d]                Memory allocation strategy\n"
+            "            (p: memory pool)\n"
+            "            (d: default strategy)\n"
+            "            (default memory pool)\n"
+            "         -n:<number>              Number of trials (default 6)\n"
+            "         -b:<branch>              Branch label for boost implementations\n"
+            "         -m:[i][p][n]             Number parsing mode\n"
+            "            (i: imprecise)\n"
+            "            (p: precise)\n"
+            "            (n: none)\n"
+            "            (default imprecise)\n"
+            "         -f:[y][n]                Include file IO into consideration when testing parsers\n"
+            "            (y: yes)\n"
+            "            (n: no)\n"
+            "            (default no)\n"
         ;
 
         return 4;
@@ -841,14 +1130,12 @@ main(
 
     for( int i = 1; i < argc; ++i )
     {
-        char const * s = argv[ i ];
+        char const* s = argv[ i ];
 
         if( *s == '-' )
         {
             if( !parse_option( s+1 ) )
-            {
                 std::cerr << "Unrecognized or incorrect option: '" << s << "'\n";
-            }
         }
         else
         {
@@ -858,24 +1145,37 @@ main(
 
     try
     {
-/*
-        strings.json integers-32.json integers-64.json twitter.json small.json array.json random.json citm_catalog.json canada.json
-*/
         impl_list vi;
 
-        for( char ch: s_impls )
-        {
-            add_impl( vi, ch );
-        }
+        for( char impl: s_impls )
+            for( char alloc: s_alloc )
+                for( char num: s_num_mode )
+                    for( char io: s_file_io )
+                        add_impl( vi, impl, alloc, io, num );
+
+        // remove duplicate implementations
+        std::sort(
+            vi.begin(),
+            vi.end(),
+            [](impl_ptr const& l, impl_ptr const& r)
+            {
+                return l->name() < r->name();
+            });
+        auto const it = std::unique(
+            vi.begin(),
+            vi.end(),
+            [](impl_ptr const& l, impl_ptr const& r)
+            {
+                return l->name() == r->name();
+            });
+        vi.erase( it, vi.end() );
 
         for( char ch: s_tests )
-        {
             do_test( vf, vi, ch );
-        }
 
         dout << "\n" << strout.str();
     }
-    catch(system_error const& se)
+    catch(boost::system::system_error const& se)
     {
         dout << se.what() << std::endl;
     }

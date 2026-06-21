@@ -15,9 +15,10 @@
 #include <boost/container/detail/config_begin.hpp>
 #include <boost/container/detail/workaround.hpp>
 #include <boost/container/detail/mpl.hpp>
+#include <boost/container/detail/is_pair.hpp>
 #include <boost/move/utility_core.hpp>
 #include <boost/container/detail/type_traits.hpp>
-#include <boost/move/detail/force_ptr.hpp> //adl_move_swap
+#include <boost/move/detail/launder.hpp> //adl_move_swap
 
 namespace boost{
 namespace container {
@@ -101,7 +102,8 @@ enum EmplaceOptions{
 };
 
 template<class Container>
-bool test_expected_container(const Container &ec, const EmplaceInt *Expected, unsigned int only_first_n, unsigned int cont_offset = 0)
+typename boost::container::dtl::enable_if_c< !boost::container::dtl::is_pair<typename Container::value_type>::value, bool>::type
+   test_expected_container(const Container &ec, const EmplaceInt *Expected, unsigned int only_first_n, unsigned int cont_offset = 0)
 {
    typedef typename Container::const_iterator const_iterator;
    const_iterator itb(ec.begin()), ite(ec.end());
@@ -125,7 +127,8 @@ bool test_expected_container(const Container &ec, const EmplaceInt *Expected, un
 }
 
 template<class Container>
-bool test_expected_container(const Container &ec, const std::pair<EmplaceInt, EmplaceInt> *Expected, unsigned int only_first_n)
+typename boost::container::dtl::enable_if_c<boost::container::dtl::is_pair<typename Container::value_type>::value, bool>::type
+   test_expected_container(const Container &ec, const std::pair<EmplaceInt, EmplaceInt> *Expected, unsigned int only_first_n)
 {
    typedef typename Container::const_iterator const_iterator;
    const_iterator itb(ec.begin()), ite(ec.end());
@@ -152,7 +155,7 @@ static boost::container::dtl::aligned_storage<sizeof(EmplaceIntPair)*10>::type p
 
 static EmplaceIntPair* initialize_emplace_int_pair()
 {
-   EmplaceIntPair* ret = move_detail::force_ptr<EmplaceIntPair*>(&pair_storage);
+   EmplaceIntPair* ret = move_detail::launder_cast<EmplaceIntPair*>(&pair_storage);
    for(unsigned int i = 0; i != 10; ++i){
       new(&ret->first)EmplaceInt();
       new(&ret->second)EmplaceInt();

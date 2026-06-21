@@ -54,13 +54,20 @@ struct all_reports
 };
 
 static all_reports all_reports_;
+} // detail
 
+namespace implementation_defined {
 void
 recycled_add_impl(
     std::size_t n) noexcept
 {
-    auto& a = all_reports_;
+    auto& a = detail::all_reports_;
 
+    // LCOV_EXCL_START
+    /*
+     * We can't guarantee coverage
+     * exercise of this path.
+     */
     std::size_t new_count = ++a.count;
     std::size_t old_count_max = a.count_max;
     while (
@@ -83,17 +90,17 @@ recycled_add_impl(
         !a.alloc_max.compare_exchange_weak(
             old_alloc_max, n))
     {}
+    // LCOV_EXCL_STOP
 }
 
 void
 recycled_remove_impl(
     std::size_t n) noexcept
 {
-    all_reports_.count--;
-    all_reports_.bytes-=n;
+    detail::all_reports_.count--;
+    detail::all_reports_.bytes-=n;
 }
-
-} // detail
+} // implementation_defined
 } // grammar
 } // urls
 } // boost

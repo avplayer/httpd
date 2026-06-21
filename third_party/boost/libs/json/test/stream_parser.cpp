@@ -11,6 +11,7 @@
 // Test that header file is self-contained.
 #include <boost/json/stream_parser.hpp>
 
+#include <boost/core/detail/static_assert.hpp>
 #include <boost/json/monotonic_resource.hpp>
 #include <boost/json/parse.hpp>
 #include <boost/json/serialize.hpp>
@@ -26,7 +27,7 @@
 namespace boost {
 namespace json {
 
-BOOST_STATIC_ASSERT( std::is_nothrow_destructible<stream_parser>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_destructible<stream_parser>::value );
 
 class stream_parser_test
 {
@@ -39,11 +40,11 @@ public:
     testCtors()
     {
         // stream_parser(stream_parser const&)
-        BOOST_STATIC_ASSERT(
+        BOOST_CORE_STATIC_ASSERT(
             ! std::is_copy_constructible<stream_parser>::value);
 
         // operator=(stream_parser const&)
-        BOOST_STATIC_ASSERT(
+        BOOST_CORE_STATIC_ASSERT(
             ! std::is_copy_assignable<stream_parser>::value);
 
         // ~stream_parser()
@@ -140,14 +141,14 @@ public:
     void
     testMembers()
     {
-        // write_some(char const*, size_t, error_code&)
+        // write_some(char const*, size_t, system::error_code&)
         // write_some(char const*, size_t, std::error_code&)
-        // write_some(string_view, error_code&)
+        // write_some(string_view, system::error_code&)
         // write_some(string_view, std::error_code&)
         {
             {
                 stream_parser p;
-                error_code ec;
+                system::error_code ec;
                 BOOST_TEST(p.write_some(
                     "[]*", ec) == 2);
                 BOOST_TEST(! ec);
@@ -161,7 +162,7 @@ public:
             }
             {
                 stream_parser p;
-                error_code ec;
+                system::error_code ec;
                 BOOST_TEST(p.write_some(
                     "[*", ec) == 1);
                 BOOST_TEST(ec);
@@ -189,14 +190,14 @@ public:
             }
         }
 
-        // write(char const*, size_t, error_code&)
+        // write(char const*, size_t, system::error_code&)
         // write(char const*, size_t, std::error_code&)
-        // write(string_view, error_code&)
+        // write(string_view, system::error_code&)
         // write(string_view, std::error_code&)
         {
             {
                 stream_parser p;
-                error_code ec;
+                system::error_code ec;
                 BOOST_TEST(p.write(
                     "null", ec) == 4);
                 BOOST_TEST(! ec);
@@ -210,7 +211,7 @@ public:
             }
             {
                 stream_parser p;
-                error_code ec;
+                system::error_code ec;
                 p.write("[]*", ec),
                 BOOST_TEST(
                     ec == error::extra_data);
@@ -258,7 +259,7 @@ public:
             {
                 stream_parser p;
                 p.write("[1,2");
-                error_code ec;
+                system::error_code ec;
                 p.finish(ec);
                 BOOST_TEST(
                     ec == error::incomplete);
@@ -267,7 +268,7 @@ public:
             {
                 stream_parser p;
                 p.write("[1,2");
-                error_code ec;
+                system::error_code ec;
                 p.finish(ec);
                 BOOST_TEST_THROWS_WITH_LOCATION( p.finish() );
             }
@@ -311,7 +312,7 @@ public:
             }
             {
                 stream_parser p;
-                error_code ec;
+                system::error_code ec;
                 p.write("[]*", ec);
                 BOOST_TEST(
                     ec == error::extra_data);
@@ -332,7 +333,7 @@ public:
         const parse_options& po = parse_options())
     {
         stream_parser p(storage_ptr(), po);
-        error_code ec;
+        system::error_code ec;
         p.reset(std::move(sp));
         p.write(s.data(), s.size(), ec);
         if(BOOST_TEST(! ec))
@@ -402,7 +403,7 @@ public:
                     fail_resource mr;
                     mr.fail_max = 0;
                     stream_parser p(storage_ptr(), po);
-                    error_code ec;
+                    system::error_code ec;
                     p.reset(&mr);
                     p.write(s.data(), i, ec);
                     if(BOOST_TEST(! ec))
@@ -562,7 +563,7 @@ public:
                 std::string js;
                 js = "\"" + big + "\"";
                 auto const N = js.size() / 2;
-                error_code ec;
+                system::error_code ec;
                 stream_parser p;
                 p.write(js.data(), N, ec);
                 if(BOOST_TEST(! ec))
@@ -594,7 +595,7 @@ public:
         operator()(string_view s) const
         {
             BOOST_TEST_CHECKPOINT();
-            error_code ec;
+            system::error_code ec;
             stream_parser p;
             p.write(s.data(), s.size(), ec);
             if(BOOST_TEST(! ec))
@@ -890,7 +891,7 @@ public:
 
         // depth
         {
-            error_code ec;
+            system::error_code ec;
             parse_options opt;
             opt.max_depth = 0;
             stream_parser p(storage_ptr(), opt);
@@ -957,7 +958,7 @@ public:
 
         // depth
         {
-            error_code ec;
+            system::error_code ec;
             parse_options opt;
             opt.max_depth = 0;
             stream_parser p(storage_ptr(), opt);
@@ -977,16 +978,16 @@ public:
             "{\"1\":{},\"2\":[],\"3\":\"x\",\"4\":1,"
             "\"5\":-1,\"6\":1.0,\"7\":false,\"8\":null}";
 
-        // parse(string_view, error_code)
+        // parse(string_view, system::error_code)
         {
             {
-                error_code ec;
+                system::error_code ec;
                 auto jv = parse(js, ec);
                 BOOST_TEST(! ec);
                 check_round_trip(jv);
             }
             {
-                error_code ec;
+                system::error_code ec;
                 auto jv = parse("xxx", ec);
                 BOOST_TEST(ec);
                 BOOST_TEST(ec.has_location());
@@ -994,10 +995,10 @@ public:
             }
         }
 
-        // parse(string_view, storage_ptr, error_code)
+        // parse(string_view, storage_ptr, system::error_code)
         {
             {
-                error_code ec;
+                system::error_code ec;
                 monotonic_resource mr;
                 auto jv = parse(js, ec, &mr);
                 BOOST_TEST(! ec);
@@ -1005,7 +1006,7 @@ public:
             }
 
             {
-                error_code ec;
+                system::error_code ec;
                 monotonic_resource mr;
                 auto jv = parse("xxx", ec, &mr);
                 BOOST_TEST(ec);
@@ -1079,7 +1080,7 @@ R"xx({
         storage_ptr sp =
             make_shared_resource<monotonic_resource>();
         stream_parser p(sp);
-        error_code ec;
+        system::error_code ec;
         p.write(in.data(), in.size(), ec);
         if(BOOST_TEST(! ec))
             p.finish(ec);
@@ -1310,7 +1311,7 @@ R"xx({
             while( static_cast<std::size_t>( INT_MAX - zeroes.size() ) > count )
                 count += p.write( zeroes.data(), zeroes.size() );
 
-            error_code ec;
+            system::error_code ec;
             p.write(zeroes.data(), zeroes.size(), ec);
             BOOST_TEST( ec == error::exponent_overflow );
         }
@@ -1323,7 +1324,7 @@ R"xx({
             while( static_cast<std::size_t>( INT_MAX - zeroes.size() ) > count )
                 count += p.write( zeroes.data(), zeroes.size() );
 
-            error_code ec;
+            system::error_code ec;
             p.write(zeroes.data(), zeroes.size(), ec);
             BOOST_TEST( ec == error::exponent_overflow );
         }
@@ -1344,7 +1345,7 @@ R"xx({
             std::string const int_min = std::to_string(INT_MIN);
             p.write( int_min.data(), int_min.size() );
 
-            error_code ec;
+            system::error_code ec;
             p.finish(ec);
             BOOST_TEST( ec == error::exponent_overflow );
         }
@@ -1366,7 +1367,7 @@ R"xx({
             std::string const int_max = std::to_string(INT_MAX);
             p.write( int_max.data(), int_max.size() );
 
-            error_code ec;
+            system::error_code ec;
             p.finish(ec);
             BOOST_TEST( ec == error::exponent_overflow );
         }

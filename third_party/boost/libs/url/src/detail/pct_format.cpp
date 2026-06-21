@@ -7,11 +7,9 @@
 // Official repository: https://github.com/boostorg/url
 //
 
-#ifndef BOOST_URL_DETAIL_IMPL_PCT_FORMAT_IPP
-#define BOOST_URL_DETAIL_IMPL_PCT_FORMAT_IPP
 
 #include <boost/url/detail/config.hpp>
-#include <boost/url/detail/pct_format.hpp>
+#include "pct_format.hpp"
 #include <boost/url/grammar/parse.hpp>
 #include <boost/url/grammar/unsigned_rule.hpp>
 
@@ -215,4 +213,3 @@ pct_vformat(
 } // urls
 } // boost
 
-#endif

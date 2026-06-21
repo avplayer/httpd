@@ -14,7 +14,7 @@
 #include <boost/url/url.hpp>
 #include <boost/url/url_view.hpp>
 #include <boost/core/ignore_unused.hpp>
-#include <boost/static_assert.hpp>
+#include <boost/core/detail/static_assert.hpp>
 
 #include "test_suite.hpp"
 
@@ -26,23 +26,23 @@ namespace urls {
 
 struct static_url_test
 {
-    BOOST_STATIC_ASSERT(
+    BOOST_CORE_STATIC_ASSERT(
         std::is_default_constructible<
             static_url<10>>::value);
 
-    BOOST_STATIC_ASSERT(
+    BOOST_CORE_STATIC_ASSERT(
         std::is_copy_constructible<
             static_url<10>>::value);
 
-    BOOST_STATIC_ASSERT(
+    BOOST_CORE_STATIC_ASSERT(
         std::is_copy_assignable<
             static_url<10>>::value);
 
-    BOOST_STATIC_ASSERT(
+    BOOST_CORE_STATIC_ASSERT(
         std::is_convertible<
             static_url<10>, url_view>::value);
 
-    BOOST_STATIC_ASSERT(
+    BOOST_CORE_STATIC_ASSERT(
         std::is_convertible<
             static_url<10>, url>::value);
 
@@ -80,6 +80,14 @@ struct static_url_test
         // static_url(static_url)
         // static_url(url_view_base)
         {
+            {
+                core::string_view s = "/path/to/file.txt";
+                static_url<20> u0(s);
+                static_url<20> u1(u0);
+                BOOST_TEST_EQ(u0.buffer(), u1.buffer());
+                BOOST_TEST_NE(u0.buffer().data(), s.data());
+                BOOST_TEST_NE(u1.buffer().data(), s.data());
+            }
             {
                 core::string_view s = "/path/to/file.txt";
                 static_url<24> u0(s);
@@ -150,6 +158,24 @@ struct static_url_test
     }
 
     void
+    testUrlBase()
+    {
+        {
+            static_url<64> u("http://example.com");
+            BOOST_TEST_EQ(u.buffer(), "http://example.com");
+            u.reserve(32);
+            BOOST_TEST_EQ(u.capacity(), 65);
+        }
+        {
+            static_url<64> u("http://example.com");
+            BOOST_TEST_EQ(u.buffer(), "http://example.com");
+            u.clear();
+            BOOST_TEST_EQ(u.buffer(), "");
+            BOOST_TEST_EQ(u.capacity(), 65);
+        }
+    }
+
+    void
     testOstream()
     {
         {
@@ -191,6 +217,7 @@ struct static_url_test
     run()
     {
         testSpecial();
+        testUrlBase();
         testOstream();
         testJavadocs();
     }

@@ -7,7 +7,7 @@
 // Official repository: https://github.com/boostorg/json
 //
 
-//[example_use_allocator
+// tag::example_use_allocator[]
 
 /*
     This example uses a context that stores an allocator to create sequences during conversions
@@ -42,7 +42,7 @@ template<
         is_sequence_like<T>::value &&
         std::uses_allocator<T, Alloc>::value
         >::type >
-result<T>
+boost::system::result<T>
 tag_invoke( try_value_to_tag<T>, const value& jv, const use_allocator_t<Alloc>& ctx, const FullContext& full_ctx )
 {
 
@@ -86,4 +86,4 @@ main(int, char**)
     return EXIT_SUCCESS;
 }
 
-//]
+// end::example_use_allocator[]

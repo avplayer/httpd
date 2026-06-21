@@ -10,6 +10,7 @@
 // Test that header file is self-contained.
 #include <boost/json/array.hpp>
 
+#include <boost/core/detail/static_assert.hpp>
 #include <boost/json/monotonic_resource.hpp>
 
 #include <forward_list>
@@ -22,8 +23,8 @@
 namespace boost {
 namespace json {
 
-BOOST_STATIC_ASSERT( std::is_nothrow_destructible<array>::value );
-BOOST_STATIC_ASSERT( std::is_nothrow_move_constructible<array>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_destructible<array>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_move_constructible<array>::value );
 
 class array_test
 {
@@ -478,6 +479,30 @@ public:
             BOOST_TEST(a.at(1).is_bool());
             BOOST_TEST(a.at(2).is_string());
             BOOST_TEST_THROWS_WITH_LOCATION( a.at(3) );
+        }
+
+        // try_at(pos)
+        {
+            array a({ 1, true, str_ });
+            BOOST_TEST( a.try_at(0)->is_number() );
+            BOOST_TEST( a.try_at(1)->is_bool() );
+            BOOST_TEST( a.try_at(2)->is_string() );
+
+            system::error_code const ec = a.try_at(3).error();
+            BOOST_TEST( ec == error::out_of_range );
+            BOOST_TEST( ec.has_location() );
+        }
+
+        // try_at(pos) const
+        {
+            array const a({1, true, str_});
+            BOOST_TEST(a.try_at(0)->is_number());
+            BOOST_TEST(a.try_at(1)->is_bool());
+            BOOST_TEST(a.try_at(2)->is_string());
+
+            system::error_code const ec = a.try_at(3).error();
+            BOOST_TEST( ec == error::out_of_range );
+            BOOST_TEST( ec.has_location() );
         }
 
         // operator[&](size_type) &

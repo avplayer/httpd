@@ -7,8 +7,6 @@
 // Official repository: https://github.com/boostorg/url
 //
 
-#ifndef BOOST_URL_IMPL_IPV6_ADDRESS_IPP
-#define BOOST_URL_IMPL_IPV6_ADDRESS_IPP
 
 #include <boost/url/detail/config.hpp>
 #include <boost/url/ipv6_address.hpp>
@@ -20,14 +18,6 @@
 
 namespace boost {
 namespace urls {
-
-ipv6_address::
-ipv6_address(
-    bytes_type const& bytes) noexcept
-{
-    std::memcpy(&addr_,
-        bytes.data(), 16);
-}
 
 ipv6_address::
 ipv6_address(
@@ -96,6 +86,16 @@ loopback() noexcept
     ipv6_address a;
     a.addr_[15] = 1;
     return a;
+}
+
+void
+ipv6_address::
+write_ostream(
+    std::ostream& os) const
+{
+    char buf[ipv6_address::max_str_len];
+    auto const s = to_buffer(buf, sizeof(buf));
+    os << s;
 }
 
 std::size_t
@@ -251,4 +251,3 @@ parse_ipv6_address(
 } // urls
 } // boost
 
-#endif

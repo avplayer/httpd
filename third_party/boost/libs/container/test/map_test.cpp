@@ -35,9 +35,8 @@ class recursive_map
    {}
 
    recursive_map & operator=(const recursive_map &x)
-   {  id_ = x.id_;  map_ = x.map_; return *this;  }
+   {  map_ = x.map_; return *this;  }
 
-   int id_;
    map<recursive_map, recursive_map> map_;
    map<recursive_map, recursive_map>::iterator it_;
    map<recursive_map, recursive_map>::const_iterator cit_;
@@ -45,7 +44,7 @@ class recursive_map
    map<recursive_map, recursive_map>::const_reverse_iterator crit_;
 
    friend bool operator< (const recursive_map &a, const recursive_map &b)
-   {  return a.id_ < b.id_;   }
+   {  return a.map_ < b.map_;   }
 };
 
 class recursive_multimap
@@ -59,9 +58,8 @@ class recursive_multimap
    {}
 
    recursive_multimap & operator=(const recursive_multimap &x)
-   {  id_ = x.id_;  multimap_ = x.multimap_; return *this;  }
+   {  multimap_ = x.multimap_; return *this;  }
 
-   int id_;
    multimap<recursive_multimap, recursive_multimap> multimap_;
    multimap<recursive_multimap, recursive_multimap>::iterator it_;
    multimap<recursive_multimap, recursive_multimap>::const_iterator cit_;
@@ -69,7 +67,7 @@ class recursive_multimap
    multimap<recursive_multimap, recursive_multimap>::const_reverse_iterator crit_;
 
    friend bool operator< (const recursive_multimap &a, const recursive_multimap &b)
-   {  return a.id_ < b.id_;   }
+   {  return a.multimap_ < b.multimap_;   }
 };
 
 template<class C>
@@ -194,6 +192,31 @@ bool node_type_test()
       if(dst.size() != 5)
          return false;
    }
+   {
+      typedef map<test::movable_int, char, test::less_transparent> map_t;
+      typedef multimap<test::movable_int, char, test::less_transparent> mmap_t;
+
+      map_t map1;
+      mmap_t mmap1;
+
+      //extract
+      map1.try_emplace(1, 'a');
+      mmap1.emplace(1, 'a');
+      mmap1.emplace(1, 'b');
+
+      if (!map1.extract(1))
+         return false;
+      if (map1.extract(1))
+         return false;
+
+      if (!mmap1.extract(1))
+         return false;
+      if (!mmap1.extract(1))
+         return false;
+      if (mmap1.extract(1))
+         return false;
+   }
+
    return true;
 }
 
@@ -259,111 +282,6 @@ void test_merge_from_different_comparison()
    map<int, int> map1;
    map<int, int, std::greater<int> > map2;
    map1.merge(map2);
-}
-
-bool test_heterogeneous_lookups()
-{
-   typedef map<int, char, less_transparent> map_t;
-   typedef multimap<int, char, less_transparent> mmap_t;
-   typedef map_t::value_type value_type;
-
-   map_t map1;
-   mmap_t mmap1;
-
-   const map_t &cmap1 = map1;
-   const mmap_t &cmmap1 = mmap1;
-
-   if(!map1.insert_or_assign(1, 'a').second)
-      return false;
-   if( map1.insert_or_assign(1, 'b').second)
-      return false;
-   if(!map1.insert_or_assign(2, 'c').second)
-      return false;
-   if( map1.insert_or_assign(2, 'd').second)
-      return false;
-   if(!map1.insert_or_assign(3, 'e').second)
-      return false;
-
-   if(map1.insert_or_assign(1, 'a').second)
-      return false;
-   if(map1.insert_or_assign(1, 'b').second)
-      return false;
-   if(map1.insert_or_assign(2, 'c').second)
-      return false;
-   if(map1.insert_or_assign(2, 'd').second)
-      return false;
-   if(map1.insert_or_assign(3, 'e').second)
-      return false;
-
-   mmap1.insert(value_type(1, 'a'));
-   mmap1.insert(value_type(1, 'b'));
-   mmap1.insert(value_type(2, 'c'));
-   mmap1.insert(value_type(2, 'd'));
-   mmap1.insert(value_type(3, 'e'));
-
-   const test::non_copymovable_int find_me(2);
-
-   //find
-   if(map1.find(find_me)->second != 'd')
-      return false;
-   if(cmap1.find(find_me)->second != 'd')
-      return false;
-   if(mmap1.find(find_me)->second != 'c')
-      return false;
-   if(cmmap1.find(find_me)->second != 'c')
-      return false;
-
-   //count
-   if(map1.count(find_me) != 1)
-      return false;
-   if(cmap1.count(find_me) != 1)
-      return false;
-   if(mmap1.count(find_me) != 2)
-      return false;
-   if(cmmap1.count(find_me) != 2)
-      return false;
-
-   //contains
-   if(!map1.contains(find_me))
-      return false;
-   if(!cmap1.contains(find_me))
-      return false;
-   if(!mmap1.contains(find_me))
-      return false;
-   if(!cmmap1.contains(find_me))
-      return false;
-
-   //lower_bound
-   if(map1.lower_bound(find_me)->second != 'd')
-      return false;
-   if(cmap1.lower_bound(find_me)->second != 'd')
-      return false;
-   if(mmap1.lower_bound(find_me)->second != 'c')
-      return false;
-   if(cmmap1.lower_bound(find_me)->second != 'c')
-      return false;
-
-   //upper_bound
-   if(map1.upper_bound(find_me)->second != 'e')
-      return false;
-   if(cmap1.upper_bound(find_me)->second != 'e')
-      return false;
-   if(mmap1.upper_bound(find_me)->second != 'e')
-      return false;
-   if(cmmap1.upper_bound(find_me)->second != 'e')
-      return false;
-
-   //equal_range
-   if(map1.equal_range(find_me).first->second != 'd')
-      return false;
-   if(cmap1.equal_range(find_me).second->second != 'e')
-      return false;
-   if(mmap1.equal_range(find_me).first->second != 'c')
-      return false;
-   if(cmmap1.equal_range(find_me).second->second != 'e')
-      return false;
-
-   return true;
 }
 
 bool constructor_template_auto_deduction_test()
@@ -468,8 +386,13 @@ bool constructor_template_auto_deduction_test()
 
 }}}   //namespace boost::container::test
 
+//Test the expected sizeof()
+BOOST_CONTAINER_STATIC_ASSERT_MSG(4*sizeof(void*) == sizeof(map<int, int>), "sizeof has an unexpected value");
+BOOST_CONTAINER_STATIC_ASSERT_MSG(4*sizeof(void*) == sizeof(multimap<int, int>), "sizeof has an unexpected value");
+
 int main ()
 {
+   using namespace boost::container::test;
    //Recursive container instantiation
    {
       map<recursive_map, recursive_map> map_;
@@ -557,6 +480,15 @@ int main ()
          std::cout << "Error in map_test<new_allocator<void>, red_black_tree>" << std::endl;
          return 1;
       }
+
+      if (0 != test::map_test
+         < GetAllocatorMap<new_allocator<void>, red_black_tree>::apply<test::moveconstruct_int>::map_type
+         , MyStdMap
+         , GetAllocatorMap<new_allocator<void>, red_black_tree>::apply<test::moveconstruct_int>::multimap_type
+         , MyStdMultiMap>()) {
+         std::cout << "Error in map_test<new_allocator<void>, red_black_tree>" << std::endl;
+         return 1;
+      }
    }
 
    ////////////////////////////////////
@@ -621,7 +553,15 @@ int main ()
 
    test::test_merge_from_different_comparison();
 
-   if(!test::test_heterogeneous_lookups())
+   if (!test::test_heterogeneous_lookup
+         < map<int, char, less_transparent>
+         , multimap<int, char, less_transparent>
+         >())
+      return 1;
+
+   if (!test::test_heterogeneous_insert
+         < map<test::movable_int, char, less_transparent>
+         >())
       return 1;
 
    ////////////////////////////////////
@@ -643,8 +583,8 @@ int main ()
    typedef multimap< int*, int*, std::less<int*>, std::allocator< std::pair<int *const, int*> >
                    , tree_assoc_options< optimize_size<false>, tree_type<avl_tree> >::type > avlmmap_size_optimized_no;
 
-   BOOST_STATIC_ASSERT(sizeof(rbmmap_size_optimized_yes) < sizeof(rbmap_size_optimized_no));
-   BOOST_STATIC_ASSERT(sizeof(avlmap_size_optimized_yes) < sizeof(avlmmap_size_optimized_no));
+   BOOST_CONTAINER_STATIC_ASSERT(sizeof(rbmmap_size_optimized_yes) < sizeof(rbmap_size_optimized_no));
+   BOOST_CONTAINER_STATIC_ASSERT(sizeof(avlmap_size_optimized_yes) < sizeof(avlmmap_size_optimized_no));
 
    ////////////////////////////////////
    //    has_trivial_destructor_after_move testing
@@ -658,7 +598,7 @@ int main ()
       {
          typedef boost::container::map<int, int> cont;
          typedef boost::container::dtl::tree<value_type, int, std::less<int>, void, void> tree;
-         BOOST_STATIC_ASSERT_MSG(
+         BOOST_CONTAINER_STATIC_ASSERT_MSG(
            !(boost::has_trivial_destructor_after_move<cont>::value !=
              boost::has_trivial_destructor_after_move<tree>::value)
             , "has_trivial_destructor_after_move(map, default allocator) test failed");
@@ -667,7 +607,7 @@ int main ()
       {
          typedef boost::container::map<int, int, std::less<int>, std::allocator<value_type> > cont;
          typedef boost::container::dtl::tree<value_type, int, std::less<int>, std::allocator<value_type>, void> tree;
-         BOOST_STATIC_ASSERT_MSG(
+         BOOST_CONTAINER_STATIC_ASSERT_MSG(
             !(boost::has_trivial_destructor_after_move<cont>::value !=
              boost::has_trivial_destructor_after_move<tree>::value)
             , "has_trivial_destructor_after_move(map, std::allocator) test failed");
@@ -680,7 +620,7 @@ int main ()
          //       default allocator
          typedef boost::container::multimap<int, int> cont;
          typedef boost::container::dtl::tree<value_type, int, std::less<int>, void, void> tree;
-         BOOST_STATIC_ASSERT_MSG(
+         BOOST_CONTAINER_STATIC_ASSERT_MSG(
            !(boost::has_trivial_destructor_after_move<cont>::value !=
              boost::has_trivial_destructor_after_move<tree>::value)
            , "has_trivial_destructor_after_move(multimap, default allocator) test failed");
@@ -689,7 +629,7 @@ int main ()
       {
          typedef boost::container::multimap<int, int, std::less<int>, std::allocator<value_type> > cont;
          typedef boost::container::dtl::tree<value_type, int, std::less<int>, std::allocator<value_type>, void> tree;
-         BOOST_STATIC_ASSERT_MSG(
+         BOOST_CONTAINER_STATIC_ASSERT_MSG(
            !(boost::has_trivial_destructor_after_move<cont>::value !=
              boost::has_trivial_destructor_after_move<tree>::value)
            , "has_trivial_destructor_after_move(multimap, std::allocator) test failed");

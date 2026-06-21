@@ -1,0 +1,353 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="215.9mm" height="279.4mm" viewBox="0 0 21590 27940" stroke-width="28.222" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <g>
+    <!-- Background -->
+    <g id="background">
+      <rect x="0" y="0" width="21590" height="27940" fill="rgb(240,240,240)" stroke="none"/>
+    </g>
+
+    <!-- Title -->
+    <g id="title">
+      <text x="5647" y="1208" font-family="Liberation Sans, sans-serif" font-size="847px" font-weight="400" fill="rgb(0,0,0)">Boost.URL Reference Card</text>
+    </g>
+
+    <!-- Section 1: URL Syntax -->
+    <g id="section1-header">
+      <rect x="635" y="1616" width="20320" height="3781" fill="none" stroke="rgb(128,128,128)"/>
+      <text x="885" y="2334" font-family="Liberation Sans Narrow, sans-serif" font-size="635px" font-weight="400" fill="rgb(0,0,0)">URL syntax</text>
+    </g>
+
+    <!-- URL syntax components -->
+    <!-- Scheme box in URL syntax diagram -->
+    <g id="url-syntax-scheme">
+      <rect x="952" y="3493" width="1589" height="953" rx="150" ry="150" fill="rgb(255,255,177)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="1284" y="4129" font-family="Arial, sans-serif" font-size="423px" font-weight="400" fill="rgb(0,0,0)">https</text>
+      <text x="1129" y="5103" font-family="Arial, sans-serif" font-size="353px" font-weight="400" fill="rgb(0,0,0)">scheme</text>
+    </g>
+
+    <!-- URL separator :// -->
+    <g id="url-separator">
+      <rect x="2539" y="3491" width="636" height="954" rx="106" ry="106" fill="none" stroke="rgb(221,221,221)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="2667" y="4112" font-family="Arial, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">://</text>
+    </g>
+
+    <!-- Userinfo in URL syntax diagram -->
+    <g id="url-syntax-userinfo">
+      <rect x="3175" y="3491" width="2541" height="954" rx="159" ry="159" fill="rgb(255,235,155)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="3523" y="4127" font-family="Arial, sans-serif" font-size="423px" font-weight="400" fill="rgb(0,0,0)">user:pass</text>
+      <text x="3820" y="5101" font-family="Arial, sans-serif" font-size="353px" font-weight="400" fill="rgb(0,0,0)">userinfo</text>
+    </g>
+
+    <!-- @ separator -->
+    <g id="at-separator">
+      <rect x="5714" y="3491" width="636" height="954" rx="106" ry="106" fill="none" stroke="rgb(221,221,221)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="5815" y="4112" font-family="Arial, sans-serif" font-size="423px" font-weight="400" fill="rgb(0,0,0)">@</text>
+    </g>
+
+    <!-- Host and port in URL syntax diagram -->
+    <g id="url-syntax-host-port">
+      <rect x="6348" y="3491" width="4764" height="954" rx="159" ry="159" fill="rgb(215,255,195)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="6665" y="4127" font-family="Arial, sans-serif" font-size="423px" font-weight="400">
+        <tspan id="id32" fill="rgb(0,0,128)" xlink:href="http://www.example.com/"><a xlink:href="http://www.example.com/">www.example.com</a></tspan>
+        <tspan fill="rgb(0,0,0)">:80</tspan>
+      </text>
+      <text x="7704" y="5101" font-family="Arial, sans-serif" font-size="353px" font-weight="400" fill="rgb(0,0,0)">host and port</text>
+    </g>
+
+    <!-- Path in URL syntax diagram -->
+    <g id="url-syntax-path">
+      <rect x="11111" y="3491" width="3176" height="954" rx="159" ry="159" fill="rgb(193,255,255)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="11373" y="4127" font-family="Arial, sans-serif" font-size="423px" font-weight="400" fill="rgb(0,0,0)">/path/to/file.txt</text>
+      <text x="12357" y="5101" font-family="Arial, sans-serif" font-size="353px" font-weight="400" fill="rgb(0,0,0)">path</text>
+    </g>
+
+    <!-- ? separator -->
+    <g id="question-separator">
+      <rect x="14286" y="3491" width="636" height="954" rx="106" ry="106" fill="none" stroke="rgb(221,221,221)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="14484" y="4112" font-family="Arial, sans-serif" font-size="423px" font-weight="400" fill="rgb(0,0,0)">?</text>
+    </g>
+
+    <!-- Query in URL syntax diagram -->
+    <g id="url-syntax-query">
+      <rect x="14921" y="3491" width="3494" height="954" rx="159" ry="159" fill="rgb(255,220,255)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="15149" y="4127" font-family="Arial, sans-serif" font-size="423px" font-weight="400" fill="rgb(0,0,0)">cn=text&amp;cached</text>
+      <text x="16226" y="5101" font-family="Arial, sans-serif" font-size="353px" font-weight="400" fill="rgb(0,0,0)">query</text>
+    </g>
+
+    <!-- # separator -->
+    <g id="hash-separator">
+      <rect x="18414" y="3491" width="636" height="954" rx="106" ry="106" fill="none" stroke="rgb(221,221,221)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="18612" y="4112" font-family="Arial, sans-serif" font-size="423px" font-weight="400" fill="rgb(0,0,0)">#</text>
+    </g>
+
+    <!-- Fragment in URL syntax diagram -->
+    <g id="url-syntax-fragment">
+      <rect x="19049" y="3491" width="1588" height="954" rx="159" ry="159" fill="rgb(255,237,182)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text x="19360" y="4127" font-family="Arial, sans-serif" font-size="423px" font-weight="400" fill="rgb(0,0,0)">more</text>
+      <text x="19150" y="5101" font-family="Arial, sans-serif" font-size="353px" font-weight="400" fill="rgb(0,0,0)">fragment</text>
+    </g>
+
+    <!-- Authority label -->
+    <g id="authority-label">
+      <text x="6469" y="2977" font-family="Liberation Sans, sans-serif" font-size="353px" font-weight="400" fill="rgb(0,0,0)">authority</text>
+    </g>
+
+    <!-- Authority bracket line -->
+    <g id="authority-bracket">
+      <path fill="none" stroke="rgb(0,0,0)" d="M 10899,3175 L 3388,3175"/>
+      <path fill="rgb(0,0,0)" stroke="none" d="M 11112,3075 L 11086,3075 11086,3175 11086,3275 11112,3275 11112,3075 Z M 11086,3175 L 10886,3075 10886,3275 11086,3175 Z"/>
+      <path fill="rgb(0,0,0)" stroke="none" d="M 3175,3275 L 3201,3275 3201,3175 3201,3075 3175,3075 3175,3275 Z M 3201,3175 L 3401,3275 3401,3075 3201,3175 Z"/>
+    </g>
+
+    <!-- Section 2: url, url_view -->
+    <g id="section2-header">
+      <rect x="635" y="5715" width="20320" height="13017" fill="none" stroke="rgb(128,128,128)"/>
+      <text x="885" y="6301" font-family="Liberation Sans Narrow, sans-serif" font-size="635px" font-weight="400" fill="rgb(0,0,0)">url, url_view</text>
+    </g>
+
+    <!-- Scheme box -->
+    <g id="scheme-box">
+      <rect x="951" y="6984" width="4446" height="4128" rx="255" ry="255" fill="rgb(255,255,177)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="1284" y="7501">Scheme </tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="1284" y="8187">scheme</tspan>
+        <tspan x="1284" y="8509">scheme_id</tspan>
+        <tspan x="1284" y="8831">has_scheme</tspan>
+        <tspan x="1284" y="9475">set_scheme</tspan>
+        <tspan x="1284" y="9797">set_scheme_id  </tspan>
+        <tspan x="1284" y="10119">remove_scheme</tspan>
+        <tspan x="1284" y="10441">normalize_scheme</tspan>
+      </text>
+    </g>
+
+    <!-- Userinfo box -->
+    <g id="userinfo-box">
+      <rect x="951" y="11569" width="4446" height="6847" rx="275" ry="275" fill="rgb(255,235,155)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="1290" y="12092">Userinfo </tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="1290" y="12778">has_userinfo</tspan>
+        <tspan x="1290" y="13100">has_password</tspan>
+        <tspan x="1290" y="13422">password</tspan>
+        <tspan x="1290" y="13744">user</tspan>
+        <tspan x="1290" y="14066">userinfo</tspan>
+        <tspan x="1290" y="14388">encoded_password</tspan>
+        <tspan x="1290" y="14710">encoded_user</tspan>
+        <tspan x="1290" y="15032">encoded_userinfo</tspan>
+        <tspan x="1290" y="15676">set_password</tspan>
+        <tspan x="1290" y="15998">set_user</tspan>
+        <tspan x="1290" y="16320">set_userinfo</tspan>
+        <tspan x="1290" y="16642">set_encoded_password</tspan>
+        <tspan x="1290" y="16964">set_encoded_user</tspan>
+        <tspan x="1290" y="17286">set_encoded_userinfo</tspan>
+        <tspan x="1290" y="17608">remove_userinfo</tspan>
+        <tspan x="1290" y="17930">remove_password</tspan>
+      </text>
+    </g>
+
+    <!-- Host and Port box -->
+    <g id="host-port-box">
+      <rect x="5915" y="6985" width="4763" height="11431" rx="295" ry="295" fill="rgb(215,255,195)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="6260" y="7514">Host and Port </tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="6260" y="8200">encoded_host</tspan>
+        <tspan x="6260" y="8522">encoded_host_address</tspan>
+        <tspan x="6260" y="8844">encoded_host_name</tspan>
+        <tspan x="6260" y="9166">host</tspan>
+        <tspan x="6260" y="9488">host_address</tspan>
+        <tspan x="6260" y="9810">host_ipv4_address</tspan>
+        <tspan x="6260" y="10132">host_ipv6_address</tspan>
+        <tspan x="6260" y="10454">host_ipvfuture</tspan>
+        <tspan x="6260" y="10776">host_name</tspan>
+        <tspan x="6260" y="11098">host_type</tspan>
+        <tspan x="6260" y="11742">has_port</tspan>
+        <tspan x="6260" y="12064">port</tspan>
+        <tspan x="6260" y="12386">port_number</tspan>
+        <tspan x="6260" y="13030">encoded_host_and_port</tspan>
+        <tspan x="6260" y="13674">set_encoded_host</tspan>
+        <tspan x="6260" y="13996">set_encoded_host_address</tspan>
+        <tspan x="6260" y="14318">set_encoded_host_name</tspan>
+        <tspan x="6260" y="14640">set_host</tspan>
+        <tspan x="6260" y="14962">set_host_address</tspan>
+        <tspan x="6260" y="15284">set_host_ipv4</tspan>
+        <tspan x="6260" y="15606">set_host_ipv6</tspan>
+        <tspan x="6260" y="15928">set_host_ipvfuture</tspan>
+        <tspan x="6260" y="16250">set_host_name</tspan>
+        <tspan x="6260" y="16894">set_port</tspan>
+        <tspan x="6260" y="17216">remove_port</tspan>
+      </text>
+    </g>
+
+    <!-- Path box -->
+    <g id="path-box">
+      <rect x="11211" y="6984" width="4446" height="5398" rx="275" ry="275" fill="rgb(193,255,255)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="11550" y="7507">Path</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="11550" y="8193">is_path_absolute</tspan>
+        <tspan x="11550" y="8515">encoded_path</tspan>
+        <tspan x="11550" y="8837">encoded_segments</tspan>
+        <tspan x="11550" y="9159">segments</tspan>
+        <tspan x="11550" y="9803">set_path_absolute</tspan>
+        <tspan x="11550" y="10125">set_encoded_path</tspan>
+        <tspan x="11550" y="10447">normalize_path</tspan>
+      </text>
+    </g>
+
+    <!-- Query box -->
+    <g id="query-box">
+      <rect x="11212" y="13017" width="4445" height="5399" rx="275" ry="275" fill="rgb(255,220,255)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="11551" y="13540">Query</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="11551" y="14226">has_query</tspan>
+        <tspan x="11551" y="14548">params</tspan>
+        <tspan x="11551" y="14870">query</tspan>
+        <tspan x="11551" y="15192">encoded_params</tspan>
+        <tspan x="11551" y="15514">encoded_query</tspan>
+        <tspan x="11551" y="16158">set_query</tspan>
+        <tspan x="11551" y="16480">set_encoded_query</tspan>
+        <tspan x="11551" y="16802">remove_query</tspan>
+        <tspan x="11551" y="17124">normalize_query</tspan>
+      </text>
+    </g>
+
+    <!-- Fragment box -->
+    <g id="fragment-box">
+      <rect x="16191" y="6984" width="4446" height="4128" rx="255" ry="255" fill="rgb(255,237,182)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="16524" y="7501">Fragment</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="16524" y="8187">has_fragment</tspan>
+        <tspan x="16524" y="8509">encoded_fragment</tspan>
+        <tspan x="16524" y="8831">fragment</tspan>
+        <tspan x="16524" y="9475">set_fragment</tspan>
+        <tspan x="16524" y="9797">set_encoded_fragment</tspan>
+        <tspan x="16524" y="10119">remove_fragment</tspan>
+        <tspan x="16524" y="10441">normalize_fragment</tspan>
+      </text>
+    </g>
+
+    <!-- Authority box -->
+    <g id="authority-box">
+      <rect x="16191" y="11747" width="4446" height="3357" rx="208" ry="208" fill="rgb(255,255,255)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="16510" y="12250">Authority</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="16510" y="12936">authority</tspan>
+        <tspan x="16510" y="13258">has_authority</tspan>
+        <tspan x="16510" y="13580">encoded_authority</tspan>
+        <tspan x="16510" y="14224">remove_authority</tspan>
+        <tspan x="16510" y="14546">set_encoded_authority</tspan>
+      </text>
+    </g>
+
+    <!-- Other Parts box -->
+    <g id="other-parts-box">
+      <rect x="16192" y="15556" width="4445" height="2858" rx="177" ry="177" fill="rgb(255,255,255)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="16502" y="16050">Other Parts</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="16502" y="16736">encoded_origin</tspan>
+        <tspan x="16502" y="17058">encoded_resource</tspan>
+        <tspan x="16502" y="17380">encoded_target</tspan>
+        <tspan x="16502" y="18024">remove_origin</tspan>
+      </text>
+    </g>
+
+    <!-- Section 3: Other -->
+    <g id="section3-header">
+      <rect x="635" y="19050" width="20320" height="6667" fill="none" stroke="rgb(128,128,128)"/>
+      <text x="885" y="19768" font-family="Liberation Sans Narrow, sans-serif" font-size="635px" font-weight="400" fill="rgb(0,0,0)">Other</text>
+    </g>
+
+    <!-- URL Parsing box -->
+    <g id="url-parsing-box">
+      <rect x="951" y="20120" width="4446" height="5281" rx="275" ry="275" fill="rgb(250,250,250)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="1290" y="20643">URL Parsing</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="1290" y="21367">parse_absolute_uri</tspan>
+        <tspan x="1290" y="21689">parse_authority</tspan>
+        <tspan x="1290" y="22011">parse_origin_form</tspan>
+        <tspan x="1290" y="22333">parse_relative_ref</tspan>
+        <tspan x="1290" y="22655">parse_uri</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="1290" y="23299">parse_uri_reference</tspan>
+      </text>
+    </g>
+
+    <!-- Path containers box -->
+    <g id="path-containers-box">
+      <rect x="5831" y="20120" width="4446" height="5281" rx="275" ry="275" fill="rgb(250,250,250)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="6170" y="20643">Path</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="6170" y="21329">segments_encoded_ref</tspan>
+        <tspan x="6170" y="21651">segments_encoded_view</tspan>
+        <tspan x="6170" y="21973">segments_ref</tspan>
+        <tspan x="6170" y="22295">segments_view</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="6170" y="22939">parse_path</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-style="italic" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="6170" y="23583">segments_base</tspan>
+        <tspan x="6170" y="23905">segments_encoded_base</tspan>
+      </text>
+    </g>
+
+    <!-- Query containers box -->
+    <g id="query-containers-box">
+      <rect x="10811" y="20120" width="4964" height="5281" rx="307" ry="307" fill="rgb(250,250,250)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="11159" y="20652">Query</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="11159" y="21338">params_encoded_view</tspan>
+        <tspan x="11159" y="21660">params_encoded_ref</tspan>
+        <tspan x="11159" y="21982">params_view</tspan>
+        <tspan x="11159" y="22304">params_ref</tspan>
+        <tspan x="11159" y="22948">param</tspan>
+        <tspan x="11159" y="23270">param_pct_view</tspan>
+        <tspan x="11159" y="23592">param_view</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="11159" y="24236">parse_query</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-style="italic" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="11159" y="24880">params_base</tspan>
+        <tspan x="11159" y="25202">params_encoded_base</tspan>
+      </text>
+    </g>
+
+    <!-- Percent-Encoding box -->
+    <g id="percent-encoding-box">
+      <rect x="16191" y="20120" width="4446" height="5281" rx="275" ry="275" fill="rgb(250,250,250)" stroke="rgb(0,0,0)" stroke-width="18" stroke-linejoin="round"/>
+      <text font-family="Liberation Sans Narrow, sans-serif" font-size="423px" font-weight="700" fill="rgb(0,0,0)">
+        <tspan x="16530" y="20643">Percent-Encoding</tspan>
+      </text>
+      <text font-family="Liberation Mono, monospace" font-size="282px" font-weight="400" fill="rgb(0,0,0)">
+        <tspan x="16530" y="21329">encode</tspan>
+        <tspan x="16530" y="21651">encoded_size</tspan>
+        <tspan x="16530" y="21973">make_pct_string_view</tspan>
+        <tspan x="16530" y="22617">decode_view</tspan>
+        <tspan x="16530" y="22939">encoding_opts</tspan>
+        <tspan x="16530" y="23261">pct_string_view</tspan>
+      </text>
+    </g>
+  </g>
+</svg>

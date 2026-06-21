@@ -14,42 +14,26 @@ project
 
   : requirements
 
-    <toolset>msvc:<warnings-as-errors>on
-    <toolset>gcc:<warnings-as-errors>on
-    <toolset>clang:<warnings-as-errors>on
-    <toolset>msvc:<cxxflags>"/we4265" # Extra errors that are disabled by default
-    <toolset>gcc:<cxxflags>"-Wno-unused-but-set-variable"      # Warnings in dependencies
-    <toolset>gcc-7:<cxxflags>"-Wno-maybe-uninitialized"        # Warnings in dependencies
-    <toolset>clang-4:<cxxflags>"-Wno-unused-but-set-variable"  # Warnings in dependencies
-    <toolset>clang-5:<cxxflags>"-Wno-unused-but-set-variable"  # Warnings in dependencies
-    <toolset>clang-6:<cxxflags>"-Wno-unused-but-set-variable"  # Warnings in dependencies
-    <toolset>clang-13:<cxxflags>"-Wno-unused-but-set-variable" # Warnings in dependencies
-    <toolset>clang-14:<cxxflags>"-Wno-unused-but-set-variable" # Warnings in dependencies
-    <toolset>clang-15:<cxxflags>"-Wno-unused-but-set-variable" # Warnings in dependencies
+    # Extra errors that are disabled by default
+    <toolset>msvc:<cxxflags>"/we4265"
+    <toolset>msvc:<cxxflags>"/wd4251"
+
+    # Warnings in dependencies
+    <toolset>gcc:<cxxflags>"-Wno-unused-but-set-variable"
+    <toolset>gcc-15:<cxxflags>"-Wno-deprecated-declarations"
     <toolset>gcc,<target-os>windows:<cxxflags>"-Wno-error=array-bounds"
-    <undefined-sanitizer>norecover:<link>static                # different typeinfos confuse ubsan
+    <toolset>clang:<cxxflags>"-Wno-unused-but-set-variable"
+    <toolset>clang:<cxxflags>"-Wno-unused-parameter"
+    <toolset>clang:<cxxflags>"-Wno-unknown-warning-option"
+    <toolset>clang-13:<cxxflags>"-Wno-unused-but-set-variable"
+    <toolset>clang-14:<cxxflags>"-Wno-unused-but-set-variable"
+    <toolset>clang-15:<cxxflags>"-Wno-unused-but-set-variable"
+
+    # Different typeinfos confuse ubsan
+    <undefined-sanitizer>norecover:<link>static
     <undefined-sanitizer>norecover:<visibility>global
     ;
-
-project
-  : default-build
-
-    <warnings>extra
-
-  : requirements
-
-    <toolset>msvc:<warnings-as-errors>on
-    <toolset>gcc:<warnings-as-errors>on
-    <toolset>clang:<warnings-as-errors>on
-    <toolset>gcc:<cxxflags>"-Wno-unused-but-set-variable"      # Warnings in dependencies
-    <toolset>clang:<cxxflags>"-Wno-unknown-warning-option"
-    <toolset>clang-13:<cxxflags>"-Wno-unused-but-set-variable" # Warnings in dependencies
-    <toolset>clang-14:<cxxflags>"-Wno-unused-but-set-variable" # Warnings in dependencies
-    <toolset>clang-15:<cxxflags>"-Wno-unused-but-set-variable" # Warnings in dependencies
-
-  ;
 
 build-project extra ;
 build-project limits ;
 build-project unit ;
-

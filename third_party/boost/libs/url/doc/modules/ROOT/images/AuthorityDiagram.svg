@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="116.84mm" height="25.4mm" viewBox="0 0 1200 260" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1200" height="260" fill="rgb(240,240,240)"/>
+
+  <!-- Colored highlight boxes -->
+  <rect x="222" y="112" width="250" height="75" fill="rgb(255,255,153)" stroke="none"/>
+  <rect x="528" y="112" width="485" height="75" fill="rgb(204,255,0)" stroke="none"/>
+
+  <!-- Main URL text -->
+  <text x="77" y="168" font-family="Liberation Sans, sans-serif" font-size="58" fill="black">
+    http://user:pass@www.example.com:80
+  </text>
+
+  <!-- Bracket curves -->
+  <path d="M 470,117 C 470,103 460,92 450,92 L 367,92 C 357,92 347,81 347,72 C 347,81 337,92 327,92 L 244,92 C 234,92 224,103 224,117"
+        fill="none" stroke="black" stroke-width="2"/>
+  <path d="M 1013,121 C 1013,107 993,94 973,94 L 812,94 C 792,94 772,82 772,72 C 772,82 752,94 732,94 L 571,94 C 551,94 531,107 531,121"
+        fill="none" stroke="black" stroke-width="2"/>
+
+  <!-- Labels -->
+  <text x="287" y="65" font-family="Liberation Sans Narrow, sans-serif" font-size="43" font-style="italic" fill="black">userinfo</text>
+  <text x="738" y="65" font-family="Liberation Sans Narrow, sans-serif" font-size="43" font-style="italic" fill="black">host</text>
+  <text x="1030" y="65" font-family="Liberation Sans Narrow, sans-serif" font-size="43" font-style="italic" fill="black">port</text>
+</svg>

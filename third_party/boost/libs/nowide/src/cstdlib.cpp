@@ -8,7 +8,9 @@
 #define BOOST_NOWIDE_SOURCE
 
 #ifdef _MSC_VER
+#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
+#endif
 #elif defined(__MINGW32__) && defined(__STRICT_ANSI__)
 // Need the _w* functions which are extensions on MinGW but not on MinGW-w64
 #include <_mingw.h>
@@ -46,11 +48,46 @@ namespace nowide {
 #include <vector>
 #include <windows.h>
 
+namespace {
+// thread_local was broken on MinGW for all 32bit compiler releases prior to 11.x, see
+// https://sourceforge.net/p/mingw-w64/bugs/527/
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83562
+// Using a non-trivial destructor causes program termination on thread exit.
+#if defined(__MINGW32__) && !defined(__MINGW64__) && !defined(__clang__) && (__GNUC__ < 11)
+class stackstring_for_thread
+{
+    union
+    {
+        boost::nowide::stackstring s_;
+    };
+
+public:
+    stackstring_for_thread() : s_(){};
+    // Empty destructor so the union member (using a non-trivial destructor) does not get destroyed.
+    // This will leak memory if any is allocated by the stackstring for each terminated thread
+    // but as most values fit into the stack buffer this is rare and still better than a crash.
+    ~stackstring_for_thread(){};
+    void convert(const wchar_t* begin, const wchar_t* end)
+    {
+        s_.convert(begin, end);
+    }
+
+    char* get()
+    {
+        return s_.get();
+    }
+};
+#else
+using stackstring_for_thread = boost::nowide::stackstring;
+#endif
+
+} // namespace
+
 namespace boost {
 namespace nowide {
     char* getenv(const char* key)
     {
-        static stackstring value;
+        thread_local stackstring_for_thread value;
 
         const wshort_stackstring name(key);
 
@@ -70,7 +107,7 @@ namespace nowide {
                 return 0;
             ptr = &tmp[0];
         }
-        value.convert(ptr);
+        value.convert(ptr, ptr + n);
         return value.get();
     }
 

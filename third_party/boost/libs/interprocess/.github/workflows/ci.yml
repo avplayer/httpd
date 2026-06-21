@@ -1,0 +1,1120 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - develop
+      - feature/**
+
+env:
+  GIT_FETCH_JOBS: 8
+  NET_RETRY_COUNT: 5
+  DEFAULT_BUILD_VARIANT: debug,release
+
+jobs:
+  posix:
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          #------------------
+          # Linux, gcc
+          #------------------
+          # Linux, gcc-4.8
+          - toolset: gcc-4.8
+            cxxstd: "03,11"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - g++-4.8-multilib
+          # Linux, gcc-4.9
+          - toolset: gcc-4.9
+            cxxstd: "03,11"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:16.04
+            install:
+              - g++-4.9-multilib
+          # Linux, gcc-5
+          - toolset: gcc-5
+            cxxflags: -pipe
+            cxxstd: "03,11,14,1z"
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:16.04
+            install:
+              - g++-5-multilib
+          # Linux, gcc-6
+          - toolset: gcc-6
+            cxxstd: "03,11,14,1z"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - g++-6-multilib
+          # Linux, gcc-7
+          - toolset: gcc-7
+            cxxstd: "03,11,14,17"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - g++-7-multilib
+          # Linux, gcc-8
+          - toolset: gcc-8
+            cxxstd: "03,11,14,17,2a"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - g++-8-multilib
+          # Linux, gcc-9
+          - toolset: gcc-9
+            cxxstd: "03,11,14,17,2a"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:20.04
+            install:
+              - g++-9-multilib
+          # Linux, gcc-10
+          - toolset: gcc-10
+            cxxstd: "03,11,14,17,20"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:20.04
+            install:
+              - g++-10-multilib
+          # Linux, gcc-11
+          - toolset: gcc-11
+            cxxstd: "03,11,14,17,20,23"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:22.04
+            install:
+              - g++-11-multilib
+          # Linux, gcc-12
+          - toolset: gcc-12
+            cxxstd: "03,11,14,17,20,23"
+            cxxflags: -pipe
+            address-model: 32,64
+            os: ubuntu-latest
+            container: ubuntu:22.04
+            install:
+              - g++-12-multilib
+          # Linux, gcc-13
+          - toolset: gcc-13
+            cxxstd: "03,11,14,17,20,2b"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:24.04
+            install: g++-13-multilib
+            address-model: 32,64
+          # Linux, gcc-14
+          - toolset: gcc-14
+            cxxstd: "03,11,14,17,20,2b"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:24.04
+            install: g++-14-multilib
+            address-model: 32,64
+          # Linux, gcc-15
+          - toolset: gcc-15
+            cxxstd: "03,11,14,17,20,23,2c"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:25.04
+            install: g++-15-multilib
+            address-model: 32,64
+          # Linux, gcc-15, ubsan
+          - name: UBSAN
+            toolset: gcc-15
+            cxxstd: "03,11,14,17,20,23"
+            cxxflags: -pipe
+            ubsan: 1
+            os: ubuntu-latest
+            container: ubuntu:25.04
+            install: g++-15
+          # Linux, gcc-15, asan
+          - name: ASAN
+            toolset: gcc-15
+            cxxstd: "03,11,14,17,20,23"
+            cxxflags: -pipe
+            asan: 1
+            os: ubuntu-latest
+            container: ubuntu:25.04
+            install: g++-15
+          #------------------
+          # Linux, clang
+          #------------------
+          # Linux, clang-3.6
+          - toolset: clang
+            compiler: clang++-3.6
+            cxxstd: "03,11,14"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:16.04
+            install:
+              - clang-3.6
+          # Linux, clang-3.7
+          - toolset: clang
+            compiler: clang++-3.7
+            cxxstd: "03,11,14"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:16.04
+            install:
+              - clang-3.7
+          # Linux, clang-3.8
+          - toolset: clang
+            compiler: clang++-3.8
+            cxxstd: "03,11,14"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:16.04
+            install:
+              - clang-3.8
+          # Linux, clang-3.9
+          - toolset: clang
+            compiler: clang++-3.9
+            cxxstd: "03,11,14"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - clang-3.9
+          # Linux, clang-4.0
+          - toolset: clang
+            compiler: clang++-4.0
+            cxxstd: "03,11,14"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - clang-4.0
+          # Linux, clang-5.0
+          - toolset: clang
+            compiler: clang++-5.0
+            cxxstd: "03,11,14,1z"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - clang-5.0
+          # Linux, clang-6.0
+          - toolset: clang
+            compiler: clang++-6.0
+            cxxstd: "03,11,14,17"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - clang-6.0
+          # Linux, clang-7
+          - toolset: clang
+            compiler: clang++-7
+            cxxstd: "03,11,14,17"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - clang-7
+          # Linux, clang-8
+          # Note: clang-8 does not fully support C++20, so it is not compatible with libstdc++-8 in this mode
+          - toolset: clang
+            compiler: clang++-8
+            cxxstd: "03,11,14,17,2a"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:18.04
+            install:
+              - clang-8
+              - g++-7
+            gcc_toolchain: 7
+          # Linux, clang-9
+          - toolset: clang
+            compiler: clang++-9
+            cxxstd: "03,11,14,17,2a"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:20.04
+            install:
+              - clang-9
+          # Linux, clang-10
+          - toolset: clang
+            compiler: clang++-10
+            cxxstd: "03,11,14,17,20"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:20.04
+            install:
+              - clang-10
+          # Linux, clang-11
+          - toolset: clang
+            compiler: clang++-11
+            cxxstd: "03,11,14,17,20"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:22.04
+            install:
+              - clang-11
+          # Linux, clang-12
+          - toolset: clang
+            compiler: clang++-12
+            cxxstd: "03,11,14,17,20"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:22.04
+            install:
+              - clang-12
+          # Linux, clang-13
+          - toolset: clang
+            compiler: clang++-13
+            cxxstd: "03,11,14,17,20"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:22.04
+            install:
+              - clang-13
+          # Linux, clang-14
+          - toolset: clang
+            compiler: clang++-14
+            cxxstd: "03,11,14,17,20"
+            cxxflags: -pipe
+            os: ubuntu-latest
+            container: ubuntu:22.04
+            install:
+              - clang-14
+          # Linux, clang-15
+          - toolset: clang
+            compiler: clang++-15
+            cxxstd: "03,11,14,17,20"
+            cxxflags: -pipe
+            container: ubuntu:22.04
+            os: ubuntu-latest
+            install: clang-15
+          # Linux, clang-16
+          - toolset: clang
+            compiler: clang++-16
+            cxxflags: -pipe
+            cxxstd: "03,11,14,17,20,2b"
+            container: ubuntu:24.04
+            os: ubuntu-latest
+            install: clang-16
+          # Linux, clang-17
+          - toolset: clang
+            compiler: clang++-17
+            cxxstd: "03,11,14,17,20,2b"
+            cxxflags: -pipe
+            container: ubuntu:24.04
+            os: ubuntu-latest
+            install: clang-17
+          # Linux, clang-18
+          - toolset: clang
+            compiler: clang++-18
+            cxxstd: "03,11,14,17,20,2b"
+            cxxflags: -pipe
+            container: ubuntu:24.04
+            os: ubuntu-latest
+            install: clang-18
+          # Linux, clang-19
+          - toolset: clang
+            compiler: clang++-19
+            cxxstd: "03,11,14,17,20,2b"
+            cxxflags: -pipe
+            container: ubuntu:24.04
+            os: ubuntu-latest
+            install: clang-19
+          # Linux, clang-20
+          - toolset: clang
+            compiler: clang++-20
+            cxxstd: "03,11,14,17,20,23,2c"
+            cxxflags: -pipe
+            container: ubuntu:25.04
+            os: ubuntu-latest
+            install: clang-20
+          # Linux, clang-15 libc++
+          - toolset: clang
+            compiler: clang++-15
+            cxxstd: "11,14,17,20,2b"
+            os: ubuntu-latest
+            container: ubuntu:22.04
+            install:
+              - clang-15
+              - libc++-15-dev
+              - libc++abi-15-dev
+            cxxflags: -pipe -stdlib=libc++
+            linkflags: -stdlib=libc++
+          # Linux, clang-18 libc++
+          - toolset: clang
+            compiler: clang++-18
+            cxxstd: "11,14,17,20,2b"
+            os: ubuntu-latest
+            container: ubuntu:24.04
+            install:
+              - clang-18
+              - libc++-18-dev
+              - libc++abi-18-dev
+            cxxflags: -pipe -stdlib=libc++
+            linkflags: -stdlib=libc++
+          # Linux, clang-20 libc++
+          - toolset: clang
+            compiler: clang++-20
+            cxxstd: "11,14,17,20,23,2c"
+            os: ubuntu-latest
+            container: ubuntu:25.04
+            install:
+              - clang-20
+              - libc++-20-dev
+              - libc++abi-20-dev
+            cxxflags: -pipe -stdlib=libc++
+            linkflags: -stdlib=libc++
+          # Linux, clang-20 libc++, ubsan
+          - name: UBSAN
+            toolset: clang
+            compiler: clang++-20
+            cxxstd: "11,14,17,20,23,2c"
+            cxxflags: -pipe -stdlib=libc++
+            linkflags: -stdlib=libc++
+            ubsan: 1
+            os: ubuntu-latest
+            container: ubuntu:25.04
+            install:
+              - clang-20
+              - libc++-20-dev
+              - libc++abi-20-dev
+          # Linux, clang-20 libc++, asan
+          - name: ASAN
+            toolset: clang
+            compiler: clang++-20
+            cxxstd: "11,14,17,20,23,2c"
+            cxxflags: -pipe -stdlib=libc++
+            linkflags: -stdlib=libc++
+            asan: 1
+            os: ubuntu-latest
+            container: ubuntu:25.04
+            install:
+              - clang-20
+              - libc++-20-dev
+              - libc++abi-20-dev
+          # Linux, ARM64
+          - toolset: gcc
+            cxxstd: "03,11,14,17,20,2b"
+            cxxflags: -pipe
+            os: ubuntu-24.04-arm
+            install: g++
+          #------------------
+          # MacOS, clang
+          #------------------
+          - toolset: clang
+            cxxstd: "11,14,17,20,2b"
+            os: macos-14
+          - toolset: clang
+            cxxstd: "11,14,17,20,2b"
+            os: macos-15
+          - toolset: clang
+            cxxstd: "11,14,17,20,23,2c"
+            os: macos-26
+
+    timeout-minutes: 240
+    runs-on: ${{matrix.os}}
+    container: ${{matrix.container}}
+
+    steps:
+      - name: Setup environment
+        run: |
+            if [ -f "/etc/debian_version" ]
+            then
+                echo "DEBIAN_FRONTEND=noninteractive" >> $GITHUB_ENV
+                export DEBIAN_FRONTEND=noninteractive
+            fi
+            if [ -n "${{matrix.container}}" ]
+            then
+                echo "GHA_CONTAINER=${{matrix.container}}" >> $GITHUB_ENV
+                if [ -f "/etc/debian_version" ]
+                then
+                    for i in $(seq 1 $NET_RETRY_COUNT); do
+                        apt-get update && break || sleep 5
+                    done
+                    if [ "$(apt-cache search "^python-is-python3$" | wc -l)" -ne 0 ]
+                    then
+                        PYTHON_PACKAGE="python-is-python3"
+                    else
+                        PYTHON_PACKAGE="python"
+                    fi
+                    apt-get -o Acquire::Retries=$NET_RETRY_COUNT install -y sudo software-properties-common tzdata wget curl apt-transport-https ca-certificates make build-essential g++ $PYTHON_PACKAGE python3 perl git cmake
+                fi
+            fi
+            git config --global pack.threads 0
+
+      - name: Install packages
+        if: matrix.install
+        run: |
+            declare -a SOURCE_KEYS SOURCES
+            if [ -n "${{join(matrix.source_keys, ' ')}}" ]
+            then
+                SOURCE_KEYS=("${{join(matrix.source_keys, '" "')}}")
+            fi
+            if [ -n "${{join(matrix.sources, ' ')}}" ]
+            then
+                SOURCES=("${{join(matrix.sources, '" "')}}")
+            fi
+            for key in "${SOURCE_KEYS[@]}"
+            do
+                for i in {1..$NET_RETRY_COUNT}
+                do
+                    echo "Adding key: $key"
+                    wget -O - "$key" | sudo apt-key add - && break || sleep 2
+                done
+            done
+            if [ ${#SOURCES[@]} -gt 0 ]
+            then
+                APT_ADD_REPO_COMMON_ARGS=("-y")
+                APT_ADD_REPO_SUPPORTED_ARGS="$(apt-add-repository --help | perl -ne 'if (/^\s*-n/) { print "n"; } elsif (/^\s*-P/) { print "P"; } elsif (/^\s*-S/) { print "S"; } elsif (/^\s*-U/) { print "U"; }')"
+                if [ -n "$APT_ADD_REPO_SUPPORTED_ARGS" -a -z "${APT_ADD_REPO_SUPPORTED_ARGS##*n*}" ]
+                then
+                    APT_ADD_REPO_COMMON_ARGS+=("-n")
+                fi
+                APT_ADD_REPO_HAS_SOURCE_ARGS="$([ -n "$APT_ADD_REPO_SUPPORTED_ARGS" -a -z "${APT_ADD_REPO_SUPPORTED_ARGS##*P*}" -a -z "${APT_ADD_REPO_SUPPORTED_ARGS##*S*}" -a -z "${APT_ADD_REPO_SUPPORTED_ARGS##*U*}" ] && echo 1 || echo 0)"
+                for source in "${SOURCES[@]}"
+                do
+                    for i in {1..$NET_RETRY_COUNT}
+                    do
+                        APT_ADD_REPO_ARGS=("${APT_ADD_REPO_COMMON_ARGS[@]}")
+                        if [ $APT_ADD_REPO_HAS_SOURCE_ARGS -ne 0 ]
+                        then
+                            case "$source" in
+                            "ppa:"*)
+                                APT_ADD_REPO_ARGS+=("-P")
+                                ;;
+                            "deb "*)
+                                APT_ADD_REPO_ARGS+=("-S")
+                                ;;
+                            *)
+                                APT_ADD_REPO_ARGS+=("-U")
+                                ;;
+                            esac
+                        fi
+                        APT_ADD_REPO_ARGS+=("$source")
+                        echo "apt-add-repository ${APT_ADD_REPO_ARGS[@]}"
+                        sudo -E apt-add-repository "${APT_ADD_REPO_ARGS[@]}" && break || sleep 2
+                    done
+                done
+            fi
+            for i in $(seq 1 $NET_RETRY_COUNT); do
+               apt-get update && break || sleep 5
+            done
+            sudo apt-get -o Acquire::Retries=$NET_RETRY_COUNT install -y ${{join(matrix.install, ' ')}}
+
+      - name: Setup GCC Toolchain
+        if: matrix.gcc_toolchain
+        run: |
+            GCC_TOOLCHAIN_ROOT="$HOME/gcc-toolchain"
+            echo "GCC_TOOLCHAIN_ROOT=\"$GCC_TOOLCHAIN_ROOT\"" >> $GITHUB_ENV
+            MULTIARCH_TRIPLET="$(dpkg-architecture -qDEB_HOST_MULTIARCH)"
+            mkdir -p "$GCC_TOOLCHAIN_ROOT"
+            ln -s /usr/include "$GCC_TOOLCHAIN_ROOT/include"
+            ln -s /usr/bin "$GCC_TOOLCHAIN_ROOT/bin"
+            mkdir -p "$GCC_TOOLCHAIN_ROOT/lib/gcc/$MULTIARCH_TRIPLET"
+            ln -s "/usr/lib/gcc/$MULTIARCH_TRIPLET/${{matrix.gcc_toolchain}}" "$GCC_TOOLCHAIN_ROOT/lib/gcc/$MULTIARCH_TRIPLET/${{matrix.gcc_toolchain}}"
+
+      - name: Setup Boost
+        run: |
+            echo GITHUB_REPOSITORY: $GITHUB_REPOSITORY
+            LIBRARY=${GITHUB_REPOSITORY#*/}
+            echo LIBRARY: $LIBRARY
+            echo "LIBRARY=$LIBRARY" >> $GITHUB_ENV
+            echo GITHUB_BASE_REF: $GITHUB_BASE_REF
+            echo GITHUB_REF: $GITHUB_REF
+            REF=${GITHUB_BASE_REF:-$GITHUB_REF}
+            REF=${REF#refs/heads/}
+            echo REF: $REF
+            BOOST_BRANCH=develop && [ "$REF" = "master" ] && BOOST_BRANCH=master || true
+            echo BOOST_BRANCH: $BOOST_BRANCH
+            BUILD_JOBS=$((nproc || sysctl -n hw.ncpu) 2> /dev/null)
+            echo BUILD_JOBS: $BUILD_JOBS
+            echo "BUILD_JOBS=$BUILD_JOBS" >> $GITHUB_ENV
+            echo "CMAKE_BUILD_PARALLEL_LEVEL=$BUILD_JOBS" >> $GITHUB_ENV
+            DEPINST_ARGS=()
+            GIT_VERSION="$(git --version | sed -e 's/git version //')"
+            GIT_HAS_JOBS=1
+            if [ -f "/etc/debian_version" ]
+            then
+                if $(dpkg --compare-versions "$GIT_VERSION" lt 2.8.0)
+                then
+                    GIT_HAS_JOBS=0
+                fi
+            else
+                declare -a GIT_VER=(${GIT_VERSION//./ })
+                declare -a GIT_MIN_VER=(2 8 0)
+                for ((i=0; i<${#GIT_VER[@]}; i++))
+                do
+                    if [ -z "${GIT_MIN_VER[i]}" ]
+                    then
+                        GIT_MIN_VER[i]=0
+                    fi
+                    if [ "${GIT_VER[i]}" -lt "${GIT_MIN_VER[i]}" ]
+                    then
+                        GIT_HAS_JOBS=0
+                        break
+                    fi
+                done
+            fi
+            if [ "$GIT_HAS_JOBS" -ne 0 ]
+            then
+                DEPINST_ARGS+=("--git_args" "--jobs $GIT_FETCH_JOBS")
+            fi
+            mkdir -p snapshot
+            cd snapshot
+            echo "Downloading library snapshot: https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            curl -L --retry "$NET_RETRY_COUNT" -o "${LIBRARY}-${GITHUB_SHA}.tar.gz" "https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            tar -xf "${LIBRARY}-${GITHUB_SHA}.tar.gz"
+            if [ ! -d "${LIBRARY}-${GITHUB_SHA}" ]
+            then
+                echo "Library snapshot does not contain the library directory ${LIBRARY}-${GITHUB_SHA}:"
+                ls -la
+                exit 1
+            fi
+            rm -f "${LIBRARY}-${GITHUB_SHA}.tar.gz"
+            cd ..
+            git clone -b "$BOOST_BRANCH" --depth 1 "https://github.com/boostorg/boost.git" "boost-root"
+            cd boost-root
+            mkdir -p libs
+            rm -rf "libs/$LIBRARY"
+            mv -f "../snapshot/${LIBRARY}-${GITHUB_SHA}" "libs/$LIBRARY"
+            rm -rf "../snapshot"
+            git submodule update --init tools/boostdep
+            DEPINST_ARGS+=("$LIBRARY")
+            python tools/boostdep/depinst/depinst.py -C "${DEPINST_ARGS[@]}"
+            ./bootstrap.sh
+            ./b2 headers
+            if [ -n "${{matrix.compiler}}" -o -n "$GCC_TOOLCHAIN_ROOT" ]
+            then
+                echo -n "using ${{matrix.toolset}} : : ${{matrix.compiler}}" > ~/user-config.jam
+                if [ -n "$GCC_TOOLCHAIN_ROOT" ]
+                then
+                    echo -n " : <compileflags>\"--gcc-toolchain=$GCC_TOOLCHAIN_ROOT\" <linkflags>\"--gcc-toolchain=$GCC_TOOLCHAIN_ROOT\"" >> ~/user-config.jam
+                fi
+                echo " ;" >> ~/user-config.jam
+            fi
+
+      - name: Run tests
+        if: matrix.cmake_tests == ''
+        run: |
+            cd boost-root
+            B2_ARGS=("-j" "$BUILD_JOBS" "toolset=${{matrix.toolset}}" "debug-symbols=off")
+            #Build variant
+            if [ -n "${{matrix.build_variant}}" ]
+            then
+                B2_ARGS+=("variant=${{matrix.build_variant}}")
+            else
+                B2_ARGS+=("variant=$DEFAULT_BUILD_VARIANT")
+            fi
+            #Threading
+            if [ -n "${{matrix.threading}}" ]
+            then
+                B2_ARGS+=("threading=${{matrix.threading}}")
+            fi
+            #UBSAN options
+            if [ -n "${{matrix.ubsan}}" ]
+            then
+                export UBSAN_OPTIONS="verbosity=1:print_stacktrace=1"
+                B2_ARGS+=("undefined-sanitizer=norecover" "define=UBSAN=1")
+            fi
+            #ASAN options
+            if [ -n "${{matrix.asan}}" ]
+            then
+                export ASAN_OPTIONS="verbosity=1:print_stacktrace=1"
+                B2_ARGS+=("address-sanitizer=norecover" "define=ASAN=1")
+            fi
+            #Common UBSAN / ASAN options
+            if [ -n "${{matrix.asan}}" ] || [ -n "${{matrix.ubsan}}" ]
+            then
+                B2_ARGS+=("debug-symbols=on" "visibility=global")
+            fi
+            #cxxflags
+            if [ -n "${{matrix.cxxflags}}" ]
+            then
+                B2_ARGS+=("cxxflags=${{matrix.cxxflags}}")
+            fi
+            #address-model
+            if [ -n "${{matrix.address-model}}" ]
+            then
+                B2_ARGS+=("address-model=${{matrix.address-model}}")
+            fi
+            #link-flags
+            if [ -n "${{matrix.linkflags}}" ]
+            then
+                B2_ARGS+=("linkflags=${{matrix.linkflags}}")
+            fi
+            #cxxstd
+            if [ -n "${{matrix.cxxstd}}" ]
+            then
+                B2_ARGS+=("cxxstd=${{matrix.cxxstd}}")
+            fi
+
+            B2_ARGS+=("libs/$LIBRARY/test")
+            ./b2 "${B2_ARGS[@]}"
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+         #------------------
+         #Windows runners are much slower, split 32/64 bit jobs
+          - toolset: msvc-14.3
+            cxxstd: "14,17,20,latest"
+            addrmd: 32
+            os: windows-2025
+          - toolset: msvc-14.3
+            cxxstd: "14,17,20,latest"
+            addrmd: 64
+            os: windows-2025
+          - toolset: clang-win
+            cxxstd: "14,17,latest"
+            addrmd: 64
+            os: windows-2025
+          - toolset: gcc
+            cxxstd: "03,11,14,17,2a"
+            addrmd: 64
+            os: windows-2025
+          - toolset: msvc-14.5
+            cxxstd: "14,17,20,latest"
+            addrmd: 32
+            os: windows-2025-vs2026
+          - toolset: msvc-14.5
+            cxxstd: "14,17,20,latest"
+            addrmd: 64
+            os: windows-2025-vs2026
+         #Now ARM version
+          - toolset: msvc-14.3
+            cxxstd: "14,17,20,latest"
+            addrmd: 64
+            os: windows-11-arm
+
+    timeout-minutes: 240
+    runs-on: ${{matrix.os}}
+
+    steps:
+      - name: Setup Boost
+        shell: cmd
+        run: |
+            echo GITHUB_REPOSITORY: %GITHUB_REPOSITORY%
+            for /f %%i in ("%GITHUB_REPOSITORY%") do set LIBRARY=%%~nxi
+            echo LIBRARY: %LIBRARY%
+            echo LIBRARY=%LIBRARY%>>%GITHUB_ENV%
+            echo GITHUB_BASE_REF: %GITHUB_BASE_REF%
+            echo GITHUB_REF: %GITHUB_REF%
+            if "%GITHUB_BASE_REF%" == "" set GITHUB_BASE_REF=%GITHUB_REF%
+            set BOOST_BRANCH=develop
+            for /f %%i in ("%GITHUB_BASE_REF%") do if "%%~nxi" == "master" set BOOST_BRANCH=master
+            echo BOOST_BRANCH: %BOOST_BRANCH%
+            echo NUMBER_OF_PROCESSORS: %NUMBER_OF_PROCESSORS%
+            mkdir snapshot
+            cd snapshot
+            echo Downloading library snapshot: https://github.com/%GITHUB_REPOSITORY%/archive/%GITHUB_SHA%.zip
+            curl -L --retry %NET_RETRY_COUNT% -o "%LIBRARY%-%GITHUB_SHA%.zip" "https://github.com/%GITHUB_REPOSITORY%/archive/%GITHUB_SHA%.zip"
+            tar -xf "%LIBRARY%-%GITHUB_SHA%.zip"
+            if not exist "%LIBRARY%-%GITHUB_SHA%\" (
+                echo Library snapshot does not contain the library directory %LIBRARY%-%GITHUB_SHA%:
+                dir
+                exit /b 1
+            )
+            del /f "%LIBRARY%-%GITHUB_SHA%.zip"
+            cd ..
+            git clone -b %BOOST_BRANCH% --depth 1 https://github.com/boostorg/boost.git boost-root
+            cd boost-root
+            if not exist "libs\" mkdir libs
+            if exist "libs\%LIBRARY%\" rmdir /s /q "libs\%LIBRARY%"
+            move /Y "..\snapshot\%LIBRARY%-%GITHUB_SHA%" "libs\%LIBRARY%"
+            rmdir /s /q "..\snapshot"
+            git submodule update --init tools/boostdep
+            python tools/boostdep/depinst/depinst.py -C --git_args "--jobs %GIT_FETCH_JOBS%" %LIBRARY%
+            cmd /c bootstrap
+            b2 -d0 headers
+
+      - name: Run tests
+        shell: cmd
+        run: |
+            cd boost-root
+            b2 -j %NUMBER_OF_PROCESSORS% libs/%LIBRARY%/test toolset=${{matrix.toolset}} cxxstd=${{matrix.cxxstd}} address-model=${{matrix.addrmd}} variant=debug,release embed-manifest-via=linker debug-symbols=off
+
+  cygwin:
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - toolset: gcc
+            cxxflags: -pipe
+            os: windows-latest
+
+    timeout-minutes: 240
+    runs-on: ${{matrix.os}}
+    container: ${{matrix.container}}
+
+    steps:
+      - name: Setup environment
+        uses: cygwin/cygwin-install-action@master
+        with:
+           packages: gcc-g++ make python3 git wget curl
+      - name: Setup Boost
+        shell: C:\cygwin\bin\bash.exe --login --norc -eo pipefail -o igncr '{0}'
+        run: |
+            echo GITHUB_REPOSITORY: $GITHUB_REPOSITORY
+            LIBRARY=${GITHUB_REPOSITORY#*/}
+            echo LIBRARY: $LIBRARY
+            echo "LIBRARY=$LIBRARY" >> $GITHUB_ENV
+            echo GITHUB_BASE_REF: $GITHUB_BASE_REF
+            echo GITHUB_REF: $GITHUB_REF
+            REF=${GITHUB_BASE_REF:-$GITHUB_REF}
+            REF=${REF#refs/heads/}
+            echo REF: $REF
+            BOOST_BRANCH=develop && [ "$REF" = "master" ] && BOOST_BRANCH=master || true
+            echo BOOST_BRANCH: $BOOST_BRANCH
+            BUILD_JOBS=$((nproc || sysctl -n hw.ncpu) 2> /dev/null)
+            echo BUILD_JOBS: $BUILD_JOBS
+            echo "BUILD_JOBS=$BUILD_JOBS" >> $GITHUB_ENV
+            echo "CMAKE_BUILD_PARALLEL_LEVEL=$BUILD_JOBS" >> $GITHUB_ENV
+            DEPINST_ARGS=()
+            GIT_VERSION="$(git --version | sed -e 's/git version //')"
+            GIT_HAS_JOBS=1
+            DEPINST_ARGS+=("--git_args" "--jobs $GIT_FETCH_JOBS")
+            mkdir -p snapshot
+            cd snapshot
+            echo "Downloading library snapshot: https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            curl -L --retry "$NET_RETRY_COUNT" -o "${LIBRARY}-${GITHUB_SHA}.tar.gz" "https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            tar -xf "${LIBRARY}-${GITHUB_SHA}.tar.gz"
+            if [ ! -d "${LIBRARY}-${GITHUB_SHA}" ]
+            then
+                echo "Library snapshot does not contain the library directory ${LIBRARY}-${GITHUB_SHA}:"
+                ls -la
+                exit 1
+            fi
+            rm -f "${LIBRARY}-${GITHUB_SHA}.tar.gz"
+            cd ..
+            git clone -b "$BOOST_BRANCH" --depth 1 "https://github.com/boostorg/boost.git" "boost-root"
+            cd boost-root
+            mkdir -p libs
+            rm -rf "libs/$LIBRARY"
+            mv -f "../snapshot/${LIBRARY}-${GITHUB_SHA}" "libs/$LIBRARY"
+            rm -rf "../snapshot"
+            git submodule update --init tools/boostdep
+            DEPINST_ARGS+=("$LIBRARY")
+            python tools/boostdep/depinst/depinst.py -C "${DEPINST_ARGS[@]}"
+            ./bootstrap.sh
+            ./b2 headers
+            if [ -n "${{matrix.compiler}}" -o -n "$GCC_TOOLCHAIN_ROOT" ]
+            then
+                echo -n "using ${{matrix.toolset}} : : ${{matrix.compiler}}" > ~/user-config.jam
+                if [ -n "$GCC_TOOLCHAIN_ROOT" ]
+                then
+                    echo -n " : <compileflags>\"--gcc-toolchain=$GCC_TOOLCHAIN_ROOT\" <linkflags>\"--gcc-toolchain=$GCC_TOOLCHAIN_ROOT\"" >> ~/user-config.jam
+                fi
+                echo " ;" >> ~/user-config.jam
+            fi
+
+      - name: Run tests
+        if: matrix.cmake_tests == ''
+        shell: C:\cygwin\bin\bash.exe --login --norc -eo pipefail -o igncr '{0}'
+        run: |
+            /usr/sbin/cygserver &
+            sleep 2
+            cd boost-root
+            B2_ARGS=("-j" "$BUILD_JOBS" "toolset=${{matrix.toolset}}" "debug-symbols=off")
+            #Build variant
+            if [ -n "${{matrix.build_variant}}" ]
+            then
+                B2_ARGS+=("variant=${{matrix.build_variant}}")
+            else
+                B2_ARGS+=("variant=$DEFAULT_BUILD_VARIANT")
+            fi
+            #Threading
+            if [ -n "${{matrix.threading}}" ]
+            then
+                B2_ARGS+=("threading=${{matrix.threading}}")
+            fi
+            #UBSAN options
+            if [ -n "${{matrix.ubsan}}" ]
+            then
+                export UBSAN_OPTIONS="verbosity=1:print_stacktrace=1"
+                B2_ARGS+=("undefined-sanitizer=norecover" "define=UBSAN=1")
+            fi
+            #ASAN options
+            if [ -n "${{matrix.asan}}" ]
+            then
+                export ASAN_OPTIONS="verbosity=1:print_stacktrace=1"
+                B2_ARGS+=("address-sanitizer=norecover" "define=ASAN=1")
+            fi
+            #Common UBSAN / ASAN options
+            if [ -n "${{matrix.asan}}" ] || [ -n "${{matrix.ubsan}}" ]
+            then
+                B2_ARGS+=("debug-symbols=on" "visibility=global")
+            fi
+            #cxxflags
+            if [ -n "${{matrix.cxxflags}}" ]
+            then
+                B2_ARGS+=("cxxflags=${{matrix.cxxflags}}")
+            fi
+            #address-model
+            if [ -n "${{matrix.address-model}}" ]
+            then
+                B2_ARGS+=("address-model=${{matrix.address-model}}")
+            fi
+            #link-flags
+            if [ -n "${{matrix.linkflags}}" ]
+            then
+                B2_ARGS+=("linkflags=${{matrix.linkflags}}")
+            fi
+            #cxxstd
+            if [ -n "${{matrix.cxxstd}}" ]
+            then
+                B2_ARGS+=("cxxstd=${{matrix.cxxstd}}")
+            fi
+            B2_ARGS+=("libs/$LIBRARY/test")
+            ./b2 "${B2_ARGS[@]}"
+
+  bsd:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - toolset: clang
+            vm: freebsd
+            cxxflags: -pipe
+            os: ubuntu-latest
+            bsd_version: "14.3"
+
+          - toolset: clang
+            vm: openbsd
+            cxxflags: -pipe
+            os: ubuntu-latest
+            bsd_version: "7.8"
+
+          - toolset: gcc
+            vm: netbsd
+            cxxflags: -pipe
+            os: ubuntu-latest
+            bsd_version: "10.1"
+
+    timeout-minutes: 240
+    runs-on: ${{matrix.os}}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test on ${{matrix.vm}}
+        uses: cross-platform-actions/action@v0.30.0
+        with:
+          operating_system: ${{matrix.vm}}
+          version: ${{matrix.bsd_version}}
+          environment_variables: GIT_FETCH_JOBS NET_RETRY_COUNT DEFAULT_BUILD_VARIANT
+          sync_files: false
+          shell: bash
+          run: |
+            export PATH=/usr/pkg/bin:/sbin:/usr/local/bin:$PATH >> ~/.profile
+            export PATH=/usr/pkg/bin:/sbin:/usr/local/bin:$PATH
+            uname -mrs
+            sysctl hw.model
+            sysctl hw.ncpu
+            sysctl hw.physmem
+            sysctl hw.usermem
+            pwd
+            ls -la
+            set -e
+
+            # Install required packages
+            echo "Installing packages..."
+            if [ "${{matrix.vm}}" == "freebsd" ]
+            then
+                echo "Executing: sudo pkg git bash python3 curl"
+                sudo pkg install -y git bash python3 curl
+            fi
+            if [ "${{matrix.vm}}" == "openbsd" ]
+            then
+                pkg_info -Q python
+                echo "Executing: sudo pkg_add git bash python%3.11 curl"            
+                sudo pkg_add -v git bash python%3.11 curl
+                # Check if python3 binary exists
+                if ! command -v python3 >/dev/null 2>&1; then
+                    echo "python3 not found, creating symlink..."
+                    sudo ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3
+                    echo "Symlink created: /usr/local/bin/python3 -> /usr/local/bin/python3.11"
+                else
+                    echo "python3 is already available at: $(which python3)"
+                fi
+            fi
+            if [ "${{matrix.vm}}" == "netbsd" ]
+            then
+                echo "Executing: pkgin -y install git-base bash python311 curl ca-certificates mozilla-rootcerts mozilla-rootcerts-openssl"            
+                sudo sh -c '
+                    export PKG_PATH="http://ftp.netbsd.org/pub/pkgsrc/packages/NetBSD/$(uname -p)/$(uname -r | cut -d_ -f1)/All/"
+                    echo "$PKG_PATH" > /usr/pkg/etc/pkgin/repositories.conf
+                    pkgin update
+                    pkgin -V -y install git-base bash python311 curl ca-certificates mozilla-rootcerts mozilla-rootcerts-openssl
+                    ln -s /usr/pkg/bin/python3.11 /usr/pkg/bin/python3
+                '
+            fi
+            echo GITHUB_REPOSITORY: $GITHUB_REPOSITORY
+            LIBRARY=${GITHUB_REPOSITORY#*/}
+            echo LIBRARY: $LIBRARY
+            echo GITHUB_BASE_REF: $GITHUB_BASE_REF
+            echo GITHUB_REF: $GITHUB_REF
+            REF=${GITHUB_BASE_REF:-$GITHUB_REF}
+            REF=${REF#refs/heads/}
+            echo REF: $REF
+            BOOST_BRANCH=develop && [ "$REF" = "master" ] && BOOST_BRANCH=master || true
+            echo BOOST_BRANCH: $BOOST_BRANCH
+            BUILD_JOBS=$(sysctl -n hw.ncpu)
+            echo BUILD_JOBS: $BUILD_JOBS
+            DEPINST_ARGS=()
+            DEPINST_ARGS+=("--git_args" "--jobs $GIT_FETCH_JOBS")
+            mkdir -p snapshot
+            cd snapshot
+            echo "Downloading library snapshot: https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            curl -L --retry "$NET_RETRY_COUNT" -o "${LIBRARY}-${GITHUB_SHA}.tar.gz" "https://github.com/${GITHUB_REPOSITORY}/archive/${GITHUB_SHA}.tar.gz"
+            tar -xzf "${LIBRARY}-${GITHUB_SHA}.tar.gz"
+            if [ ! -d "${LIBRARY}-${GITHUB_SHA}" ]
+            then
+                echo "Library snapshot does not contain the library directory ${LIBRARY}-${GITHUB_SHA}:"
+                ls -la
+                exit 1
+            fi
+            rm -f "${LIBRARY}-${GITHUB_SHA}.tar.gz"
+            cd ..
+            git clone -b "$BOOST_BRANCH" --depth 1 "https://github.com/boostorg/boost.git" "boost-root"
+            cd boost-root
+            mkdir -p libs
+            rm -rf "libs/$LIBRARY"
+            mv -f "../snapshot/${LIBRARY}-${GITHUB_SHA}" "libs/$LIBRARY"
+            rm -rf "../snapshot"
+            git submodule update --init tools/boostdep
+            DEPINST_ARGS+=("$LIBRARY")
+            python3 --version
+            python3 tools/boostdep/depinst/depinst.py "${DEPINST_ARGS[@]}"
+            ./bootstrap.sh
+            ./b2 headers
+            if [ -n "${{matrix.compiler}}" -o -n "$GCC_TOOLCHAIN_ROOT" ]
+            then
+                echo -n "using ${{matrix.toolset}} : : ${{matrix.compiler}}" > ~/user-config.jam
+                if [ -n "$GCC_TOOLCHAIN_ROOT" ]
+                then
+                    echo -n " : <compileflags>\"--gcc-toolchain=$GCC_TOOLCHAIN_ROOT\" <linkflags>\"--gcc-toolchain=$GCC_TOOLCHAIN_ROOT\"" >> ~/user-config.jam
+                fi
+                echo " ;" >> ~/user-config.jam
+            fi
+            # Run tests
+            B2_ARGS=("-j" "$BUILD_JOBS" "toolset=${{matrix.toolset}}" "debug-symbols=off")
+            #Build variant
+            if [ -n "${{matrix.build_variant}}" ]
+            then
+                B2_ARGS+=("variant=${{matrix.build_variant}}")
+            else
+                B2_ARGS+=("variant=$DEFAULT_BUILD_VARIANT")
+            fi
+            #Threading
+            if [ -n "${{matrix.threading}}" ]
+            then
+                B2_ARGS+=("threading=${{matrix.threading}}")
+            fi
+            #UBSAN options
+            if [ -n "${{matrix.ubsan}}" ]
+            then
+                export UBSAN_OPTIONS="verbosity=1:print_stacktrace=1"
+                B2_ARGS+=("undefined-sanitizer=norecover" "define=UBSAN=1")
+            fi
+            #ASAN options
+            if [ -n "${{matrix.asan}}" ]
+            then
+                export ASAN_OPTIONS="verbosity=1:print_stacktrace=1"
+                B2_ARGS+=("address-sanitizer=norecover" "define=ASAN=1")
+            fi
+            #Common UBSAN / ASAN options
+            if [ -n "${{matrix.asan}}" ] || [ -n "${{matrix.ubsan}}" ]
+            then
+                B2_ARGS+=("debug-symbols=on" "visibility=global")
+            fi
+            #cxxflags
+            if [ -n "${{matrix.cxxflags}}" ]
+            then
+                B2_ARGS+=("cxxflags=${{matrix.cxxflags}}")
+            fi
+            #address-model
+            if [ -n "${{matrix.address-model}}" ]
+            then
+                B2_ARGS+=("address-model=${{matrix.address-model}}")
+            fi
+            #link-flags
+            if [ -n "${{matrix.linkflags}}" ]
+            then
+                B2_ARGS+=("linkflags=${{matrix.linkflags}}")
+            fi
+            #cxxstd
+            if [ -n "${{matrix.cxxstd}}" ]
+            then
+                B2_ARGS+=("cxxstd=${{matrix.cxxstd}}")
+            fi
+
+            B2_ARGS+=("libs/$LIBRARY/test")
+            ./b2 "${B2_ARGS[@]}"
+
+            B2_ARGS+=("libs/$LIBRARY/test")
+            ./b2 "${B2_ARGS[@]}"
+
+
+  docs:
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            container: cppalliance/boost_superproject_build:24.04-v4
+
+    timeout-minutes: 240
+    runs-on: ${{matrix.os}}
+    container: ${{matrix.container}}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 3
+
+      - name: Git safe.directory
+        run: |
+          git status || git config --system --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'doc/**'
+
+      - if: steps.changes.outputs.src == 'true'
+        name: Build docs
+        run: |
+            set -xe
+            curl  --retry-all-errors --connect-timeout 15 -sSL --retry 5 -o linuxdocs.sh https://raw.githubusercontent.com/boostorg/release-tools/refs/heads/master/build_docs/linuxdocs.sh
+            chmod 755 linuxdocs.sh
+            ./linuxdocs.sh --skip-packages

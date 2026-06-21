@@ -7,7 +7,7 @@
 // Official repository: https://github.com/boostorg/json
 //
 
-#include <boost/json/memory_resource.hpp>
+#include <boost/container/pmr/memory_resource.hpp>
 #include <boost/json/monotonic_resource.hpp>
 #include <boost/json/value.hpp>
 #include <vector>
@@ -23,12 +23,12 @@ static void set1() {
 
 //----------------------------------------------------------
 {
-//[doc_uses_allocator_1
+// tag::doc_uses_allocator_1[]
 // We want to use this resource for all the containers
 monotonic_resource mr;
 
 // Declare a vector of JSON values
-std::vector< value, polymorphic_allocator< value > > v( &mr );
+std::vector< value, boost::container::pmr::polymorphic_allocator< value > > v( &mr );
 
 // The polymorphic allocator will use our resource
 assert( v.get_allocator().resource() == &mr );
@@ -38,13 +38,13 @@ v.emplace_back( "boost" );
 
 // The vector propagates the memory resource to the string
 assert( v[0].storage().get() == &mr );
-//]
+// end::doc_uses_allocator_1[]
 }
 //----------------------------------------------------------
 {
-//[doc_uses_allocator_2
+// tag::doc_uses_allocator_2[]
 // This vector will use the default memory resource
-std::vector< value, polymorphic_allocator < value > > v;
+std::vector< value, boost::container::pmr::polymorphic_allocator < value > > v;
 
 // This value will same memory resource as the vector
 value jv( v.get_allocator() );
@@ -54,7 +54,7 @@ assert( ! jv.storage().is_shared() );
 
 // and deallocate is never null
 assert( ! jv.storage().is_deallocate_trivial() );
-//]
+// end::doc_uses_allocator_2[]
 }
 //----------------------------------------------------------
 

@@ -17,7 +17,7 @@ namespace json {
 class pointer_test
 {
     bool
-    hasLocation(error_code const& ec)
+    hasLocation(system::error_code const& ec)
     {
         return ec.has_location();
     }
@@ -347,6 +347,50 @@ public:
     }
 
     void
+    testTry()
+    {
+        value jv = testValue();
+        BOOST_TEST( &jv.try_at_pointer("/foo").value() == &jv.at("foo") );
+        BOOST_TEST_THROWS_WITH_LOCATION( jv.try_at_pointer("foo").value() );
+
+        value const& cjv = jv;
+        BOOST_TEST( &cjv.try_at_pointer("/foo").value() == &cjv.at("foo") );
+        BOOST_TEST_THROWS_WITH_LOCATION( cjv.try_at_pointer("foo").value() );
+
+        auto result = jv.try_set_at_pointer("", array());
+        BOOST_TEST(( jv == array() ));
+        BOOST_TEST( &*result == &jv );
+    }
+
+    void
+    testDigest()
+    {
+        value jv;
+        object& jo = jv.emplace_object();
+        for(auto i = 0; i < 100; ++i)
+            jo[std::to_string(i)] = i;
+
+        for(auto i = 0; i < 4; ++i)
+        {
+            std::string key(i * 4, 'c');
+            jo[key] = 1;
+            BOOST_TEST( jv.at_pointer("/" + key) == 1 );
+
+            key += 'a';
+            jo[key] = 1;
+            BOOST_TEST( jv.at_pointer("/" + key) == 1 );
+
+            key += 'b';
+            jo[key] = 1;
+            BOOST_TEST( jv.at_pointer("/" + key) == 1 );
+
+            key += 'c';
+            jo[key] = 1;
+            BOOST_TEST( jv.at_pointer("/" + key) == 1 );
+        }
+    }
+
+    void
     run()
     {
         testRootPointer();
@@ -354,11 +398,13 @@ public:
         testEscaped();
         testNested();
         testErrors();
-        testNonThrowing<error_code>();
+        testNonThrowing<system::error_code>();
         testNonThrowing<std::error_code>();
         testSet();
-        testSetNonThrowing<error_code>();
+        testSetNonThrowing<system::error_code>();
         testSetNonThrowing<std::error_code>();
+        testTry();
+        testDigest();
     }
 };
 

@@ -42,6 +42,15 @@ struct Y
 
 int Y::instances = 0;
 
+struct E
+{
+};
+
+BOOST_NORETURN void throw_exception_from_error( Y const &, boost::source_location const& )
+{
+    throw E();
+}
+
 int main()
 {
     {
@@ -169,6 +178,48 @@ int main()
 
         r.emplace();
         BOOST_TEST( r.has_value() );
+        BOOST_TEST_EQ( Y::instances, 0 );
+    }
+
+    {
+        int x1 = 1;
+        result<int&> r( x1 );
+
+        BOOST_TEST( r.has_value() );
+        BOOST_TEST_EQ( r.value(), 1 );
+
+        int x2 = 2;
+        r.emplace( x2 );
+
+        BOOST_TEST( r.has_value() );
+        BOOST_TEST_EQ( r.value(), 2 );
+    }
+
+    {
+        result<int&> r( ENOENT, generic_category() );
+
+        BOOST_TEST( !r.has_value() );
+
+        int x2 = 2;
+        r.emplace( x2 );
+
+        BOOST_TEST( r.has_value() );
+        BOOST_TEST_EQ( r.value(), 2 );
+    }
+
+    BOOST_TEST_EQ( Y::instances, 0 );
+
+    {
+        result<int&, Y> r( in_place_error );
+
+        BOOST_TEST( !r.has_value() );
+        BOOST_TEST_EQ( Y::instances, 1 );
+
+        int x2 = 2;
+        r.emplace( x2 );
+
+        BOOST_TEST( r.has_value() );
+        BOOST_TEST_EQ( *r, 2 );
         BOOST_TEST_EQ( Y::instances, 0 );
     }
 

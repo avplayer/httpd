@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="165.1mm" height="16.51mm" viewBox="0 0 1650 170" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1650" height="170" fill="rgb(240,240,240)"/>
+
+  <!-- scheme box -->
+  <rect x="30" y="30" width="300" height="100" rx="15" ry="15" fill="rgb(255,255,177)" stroke="black" stroke-width="2"/>
+  <text x="95" y="98" font-family="Liberation Sans, sans-serif" font-size="39" fill="rgb(51,51,51)">
+    <tspan font-style="italic">scheme</tspan>
+    <tspan font-weight="bold"> ":"</tspan>
+  </text>
+
+  <!-- authority box -->
+  <rect x="346" y="30" width="303" height="100" rx="15" ry="15" fill="rgb(215,255,195)" stroke="black" stroke-width="2"/>
+  <text x="395" y="98" font-family="Liberation Sans, sans-serif" font-size="39" fill="rgb(51,51,51)">
+    <tspan font-weight="bold">"</tspan>
+    <tspan font-weight="bold">//" </tspan>
+    <tspan font-style="italic">authority</tspan>
+  </text>
+
+  <!-- path box -->
+  <rect x="664" y="30" width="302" height="100" rx="15" ry="15" fill="rgb(193,255,255)" stroke="black" stroke-width="2"/>
+  <text x="785" y="98" font-family="Liberation Sans, sans-serif" font-size="39" font-style="italic" fill="rgb(51,51,51)">path</text>
+
+  <!-- query box -->
+  <rect x="981" y="30" width="320" height="100" rx="15" ry="15" fill="rgb(255,220,255)" stroke="black" stroke-width="2"/>
+  <text x="1055" y="98" font-family="Liberation Sans, sans-serif" font-size="39" fill="rgb(51,51,51)">
+    <tspan font-weight="bold">"</tspan>
+    <tspan font-weight="bold">?" </tspan>
+    <tspan font-style="italic">query</tspan>
+  </text>
+
+  <!-- fragment box -->
+  <rect x="1316" y="30" width="303" height="100" rx="15" ry="15" fill="rgb(255,237,182)" stroke="black" stroke-width="2"/>
+  <text x="1345" y="98" font-family="Liberation Sans, sans-serif" font-size="39" fill="rgb(51,51,51)">
+    <tspan font-weight="bold">"</tspan>
+    <tspan font-weight="bold">#" </tspan>
+    <tspan font-style="italic">fragment</tspan>
+  </text>
+</svg>

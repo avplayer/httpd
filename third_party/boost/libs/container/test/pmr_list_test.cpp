@@ -9,7 +9,6 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #include <boost/container/pmr/list.hpp>
-#include <boost/static_assert.hpp>
 #include <boost/container/detail/type_traits.hpp>
 
 int main()
@@ -18,9 +17,12 @@ int main()
    using boost::container::dtl::is_same;
 
    typedef list<int, pmr::polymorphic_allocator<int> > intcontainer_t;
-   BOOST_STATIC_ASSERT(( is_same<intcontainer_t, pmr::list_of<int>::type >::value ));
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<intcontainer_t, pmr::list_of<int>::type >::value ));
    #if !defined(BOOST_NO_CXX11_TEMPLATE_ALIASES)
-      BOOST_STATIC_ASSERT(( is_same<intcontainer_t, pmr::list<int> >::value ));
+      BOOST_CONTAINER_STATIC_ASSERT(( is_same<intcontainer_t, pmr::list<int> >::value ));
    #endif
+   intcontainer_t cont(pmr::get_default_resource());
+   typedef intcontainer_t::value_type value_type;
+   cont.push_back(value_type());
    return 0;
 }

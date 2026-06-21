@@ -13,9 +13,6 @@
 
 #include <boost/url/encode.hpp>
 #include <boost/url/parse.hpp>
-#include <boost/url/url_view.hpp>
-#include <boost/url/rfc/detail/charsets.hpp>
-#include <boost/url/detail/normalize.hpp>
 
 #include "test_suite.hpp"
 
@@ -147,6 +144,14 @@ struct url_test
             BOOST_TEST_EQ(u2.buffer(), "x://y/z?q#f");
         }
 
+        // self-move assignment preserves state
+        {
+            url u("http://example.com");
+            auto& ref = u;
+            u = std::move(ref);
+            BOOST_TEST_EQ(u.buffer(), "http://example.com");
+        }
+
         // url(core::string_view)
         {
             url u("http://example.com/path/to/file.txt?#");
@@ -253,6 +258,52 @@ struct url_test
                     "https://special-api.com/some/path");
             };
             f(url{"https://"}.set_host("special-api.com").set_path("some/path"));
+        }
+
+        {
+            // issue #919
+            core::string_view s = "http://[fe80::1%25eth0]/";
+            url u0 = parse_uri(s).value();
+            BOOST_TEST_EQ(u0.host_type(), host_type::ipv6);
+
+            // Round-trip ipv6_address
+            ipv6_address a = u0.host_ipv6_address();
+            u0.set_host_ipv6(a);
+            BOOST_TEST_CSTR_EQ(u0.buffer(), s);
+
+            // Round-trip zone_id
+            std::string z = u0.zone_id();
+            u0.set_zone_id(z);
+            BOOST_TEST_CSTR_EQ(u0.buffer(), s);
+
+            // Round-trip encoded_zone_id
+            pct_string_view ez = u0.encoded_zone_id();
+            u0.set_encoded_zone_id(ez);
+            BOOST_TEST_CSTR_EQ(u0.buffer(), s);
+
+            // Round-trip host
+            std::string h = u0.host();
+            u0.set_host(h);
+            BOOST_TEST_CSTR_EQ(u0.buffer(), s);
+
+            // Round-trip encoded host
+            pct_string_view eh = u0.encoded_host();
+            u0.set_encoded_host(eh);
+            BOOST_TEST_CSTR_EQ(u0.buffer(), s);
+
+            // Round-trip host_address
+            std::string ha = u0.host_address();
+            u0.set_host_address(ha);
+            BOOST_TEST_CSTR_EQ(u0.buffer(), s);
+
+            // Round-trip encoded_host_address
+            pct_string_view eha = u0.encoded_host_address();
+            u0.set_encoded_host_address(eha);
+            BOOST_TEST_CSTR_EQ(u0.buffer(), s);
+
+            // Copy constructor
+            url u1b(s);
+            BOOST_TEST_EQ(u0, u1b);
         }
     }
 
@@ -861,6 +912,26 @@ struct url_test
             BOOST_TEST(u.set_path_absolute(true));
             u.encoded_segments().push_back("y");
             });
+
+        // issue #921: path %2F round-trip
+        {
+            url u("https://example.com/a/b/c/d%2Fe%2Ff/g/h");
+            BOOST_TEST_CSTR_EQ(u.buffer(), "https://example.com/a/b/c/d%2Fe%2Ff/g/h");
+            BOOST_TEST(u.encoded_path() == "/a/b/c/d%2Fe%2Ff/g/h");
+            BOOST_TEST(u.path() == "/a/b/c/d/e/f/g/h");
+
+            // set_encoded_path with encoded value (should round-trip correctly)
+            u.set_encoded_path(u.encoded_path());
+            BOOST_TEST_CSTR_EQ(u.buffer(), "https://example.com/a/b/c/d%2Fe%2Ff/g/h");
+            BOOST_TEST(u.encoded_path() == "/a/b/c/d%2Fe%2Ff/g/h");
+            BOOST_TEST(u.path() == "/a/b/c/d/e/f/g/h");
+
+            // set_path with decoded value (impossible to round-trip)
+            u.set_path(u.path());
+            BOOST_TEST_CSTR_EQ(u.buffer(), "https://example.com/a/b/c/d/e/f/g/h");
+            BOOST_TEST(u.encoded_path() == "/a/b/c/d/e/f/g/h");
+            BOOST_TEST(u.path() == "/a/b/c/d/e/f/g/h");
+        }
     }
 
     //--------------------------------------------
@@ -923,17 +994,19 @@ struct url_test
         /*  Errata 4547
             https://www.rfc-editor.org/errata/eid4547
         */
-        //check("../../../g",    "http://a/g");
-        //check("../../../../g", "http://a/g");
+        // Original says (ignore extra ".."):
+        // check("../../../g",    "http://a/g");
+        // check("../../../../g", "http://a/g");
+        // With Errata 4547, it should be (include unmatched ".."):
         check("../../../g",    "http://a/../g");
         check("../../../../g", "http://a/../../g");
 
         check("/./g"         , "http://a/g");
         check("/./g?q#f"     , "http://a/g?q#f");
 
-        // VFALCO RFC says this:
-        //check("/../g"        , "http://a/g");
-        // but this seems more logical
+        // Original says:
+        // check("/../g"        , "http://a/g");
+        // With Errata 4547, it should be:
         check("/../g"        , "http://a/../g");
 
         check("g."           , "http://a/b/c/g.");
@@ -959,6 +1032,39 @@ struct url_test
             BOOST_TEST(r.has_error());
             BOOST_TEST(r.error() == error::not_a_base);
         }
+
+        // Multiple ".."
+        auto const check_base = [](
+            core::string_view b,
+            core::string_view r,
+            core::string_view e)
+        {
+            auto ub = parse_uri_reference(b).value();
+            auto ur = parse_uri_reference(r).value();
+            url u = parse_uri(
+                "z://y:x@p.q:69/x/f?q#f" ).value();
+            system::result<void> rv = resolve(ub, ur, u);
+            if (!BOOST_TEST( rv.has_value() ))
+                return;
+            BOOST_TEST_CSTR_EQ(u.buffer(), e);
+
+            // in place resolution
+            url base( ub );
+            rv = base.resolve( ur );
+            if (!BOOST_TEST( rv.has_value() ))
+                return;
+            BOOST_TEST_CSTR_EQ(base.buffer(), e);
+        };
+
+        // Issue #808
+        check_base("scheme:a/b/c", "../../../..", "scheme:../..");
+        check_base("scheme:a/b/c", "../../../../", "scheme:../../");
+        check_base("scheme:a/b/c/", "../../../..", "scheme:..");
+        check_base("scheme:a/b/c/", "../../../../", "scheme:../");
+        check_base("scheme:/a/b/c", "../../../..", "scheme:/../..");
+        check_base("scheme:/a/b/c", "../../../../", "scheme:/../../");
+        check_base("scheme:/a/b/c/", "../../../..", "scheme:/..");
+        check_base("scheme:/a/b/c/", "../../../../", "scheme:/../");
 
         // resolve self
         {
@@ -994,6 +1100,15 @@ struct url_test
                 BOOST_TEST(u.resolve(ref));
                 BOOST_TEST_CSTR_EQ(u, "https:path2");
             }
+        }
+
+        // issue #920
+        {
+            url u("https://www.example.org/path/index.html?a%20b=5%206&x%20y=34#frag");
+            url ref("?asdf%20qwer=1%202%20");
+            BOOST_TEST(u.resolve(ref));
+            BOOST_TEST_CSTR_EQ(u.buffer(), "https://www.example.org/path/index.html?asdf%20qwer=1%202%20");
+            BOOST_TEST(!u.has_fragment());
         }
     }
 
@@ -1099,7 +1214,84 @@ struct url_test
             BOOST_TEST_NE(
                 url("https://:@www.boost.org/"),
                 url("https://@www.boost.org/"));
+            // issue 818
+            check("HtTp://cppalliance.org/%2F",
+                  "http://cppalliance.org/%2F");
 
+        }
+
+        // issue 985
+        // Authority ambiguity: ".." segments
+        // canceling regular segments can expose
+        // "//" without any dot prefix, producing
+        // a path that round-trips as an authority.
+        {
+            auto check_roundtrip = [](
+                core::string_view input)
+            {
+                url original = parse_uri_reference(
+                    input).value();
+                url normalized(original);
+                normalized.normalize();
+                auto r = parse_uri_reference(
+                    normalized.buffer());
+                BOOST_TEST(r.has_value());
+                if (!r.has_value())
+                {
+                    return;
+                }
+                url_view reparsed = r.value();
+                BOOST_TEST_EQ(
+                    original.has_authority(),
+                    reparsed.has_authority());
+                BOOST_TEST_EQ(
+                    normalized.encoded_path(),
+                    reparsed.encoded_path());
+                BOOST_TEST_EQ(
+                    original.is_path_absolute(),
+                    normalized.is_path_absolute());
+            };
+            // ".." cancels segments, exposing "//"
+            check_roundtrip("scheme:/a/..//evil");
+            check_roundtrip("scheme:/a/b/../..//evil");
+            check_roundtrip("scheme:/a/..//");
+            check_roundtrip("scheme:/a/..//path");
+            // ".." partially cancels
+            check_roundtrip("scheme:/a/./b/..//evil");
+            // relative path with ".."
+            check_roundtrip("a/..//evil");
+            check_roundtrip("a/b/../..//evil");
+            // dot prefix hiding "//"
+            check_roundtrip("scheme:/.//evil");
+            check_roundtrip(".//evil");
+            check_roundtrip("././/evil");
+            // issue 985 (scheme ambiguity variant):
+            // ".." cancels segments, exposing ":" in
+            // the first segment of a schemeless URL.
+            // All colons must be encoded, not just the
+            // first, because segment-nz-nc does not
+            // allow ":" at all.
+            check_roundtrip("a/../b:c");
+            check_roundtrip("a/b/../../c:d");
+            check_roundtrip("./a/../b:c");
+            // multiple colons in the exposed segment
+            check_roundtrip("a/../b:c:d");
+            check_roundtrip("a/../b:c:d:e");
+            // issue 931: normalization can produce a
+            // LONGER string. "a/../::::" is 10 bytes,
+            // but dot removal exposes "::::" as the
+            // first segment, and encoding all colons
+            // produces "%3A%3A%3A%3A" (12 bytes).
+            check_roundtrip("a/../::::");
+            check_roundtrip("a/../:b:c:d:e:f");
+            // ".." cancels colon segment AND exposes
+            // "//": colon encoding is wasted (segment
+            // disappears), but path shield is created
+            check_roundtrip("./b:c/..//x");
+            // ".." cancels non-colon segment, colon
+            // segment survives as first segment with
+            // "//" deeper in path
+            check_roundtrip("./b:c/d/..//x");
         }
 
         // normalize path
@@ -1113,15 +1305,6 @@ struct url_test
                 url u2 = parse_relative_ref(e).value();
                 BOOST_TEST_EQ(u1.compare(u2), 0);
                 BOOST_TEST_EQ(u1, u2);
-
-                // remove_dot_segments
-                std::string str;
-                str.resize(p.size());
-                std::size_t n =
-                    urls::detail::remove_dot_segments(
-                    &str[0], &str[0] + str.size(), p);
-                str.resize(n);
-                BOOST_TEST_EQ(str, e);
 
                 // hash
                 std::hash<url_view> h;
@@ -1159,15 +1342,26 @@ struct url_test
                 url_view u2 = parse_uri(e2).value();
                 BOOST_TEST_EQ(u1.compare(u2), cmp);
                 BOOST_TEST_EQ(u2.compare(u1), -cmp);
-                BOOST_TEST_NE(u1, u2);
-                BOOST_TEST_EQ((u1 < u2), (cmp < 0));
-                BOOST_TEST_EQ((u1 <= u2), (cmp <= 0));
-                BOOST_TEST_EQ((u1 > u2), (cmp > 0));
-                BOOST_TEST_EQ((u1 >= u2), (cmp >= 0));
-                std::hash<url_view> h;
-                BOOST_TEST_NE(h(u1), h(u2));
-                h = std::hash<url_view>(10);
-                BOOST_TEST_NE(h(u1), h(u2));
+                if (cmp != 0)
+                {
+                    BOOST_TEST_NE(u1, u2);
+                    BOOST_TEST_EQ((u1 < u2), (cmp < 0));
+                    BOOST_TEST_EQ((u1 <= u2), (cmp <= 0));
+                    BOOST_TEST_EQ((u1 > u2), (cmp > 0));
+                    BOOST_TEST_EQ((u1 >= u2), (cmp >= 0));
+                    std::hash<url_view> h;
+                    BOOST_TEST_NE(h(u1), h(u2));
+                    h = std::hash<url_view>(10);
+                    BOOST_TEST_NE(h(u1), h(u2));
+                }
+                else
+                {
+                    BOOST_TEST_EQ(u1, u2);
+                    std::hash<url_view> h;
+                    BOOST_TEST_EQ(h(u1), h(u2));
+                    h = std::hash<url_view>(10);
+                    BOOST_TEST_EQ(h(u1), h(u2));
+                }
             };
 
             check("http://cppalliance.org", "https://cppalliance.org", -1);
@@ -1188,6 +1382,13 @@ struct url_test
             // issue 653
             check("http://httpbin.org/redirect/10", "http://httpbin.org/get", +1);
             check("http://httpbin.org/redirect/10//10", "http://httpbin.org/11/../get", +1);
+            // issue 818
+            check("http://cppalliance.org:00", "http://cppalliance.org:10", -1);
+            check("http://cppalliance.org:10", "http://cppalliance.org:00", +1);
+            check("http://cppalliance.org:10", "http://cppalliance.org:10", 0);
+            check("http://cppalliance.org:10", "http://cppalliance.org:100", -1);
+            check("http://cppalliance.org:100", "http://cppalliance.org:10", +1);
+            check("http://cppalliance.org:100", "http://cppalliance.org:10", +1);
         }
 
         // path inequality

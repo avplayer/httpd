@@ -14,7 +14,7 @@
 #include <boost/url/parse.hpp>
 #include <boost/url/parse_query.hpp>
 #include <boost/url/url.hpp>
-#include <boost/static_assert.hpp>
+#include <boost/core/detail/static_assert.hpp>
 #include <boost/core/ignore_unused.hpp>
 
 #include "test_suite.hpp"
@@ -29,15 +29,15 @@
 namespace boost {
 namespace urls {
 
-BOOST_STATIC_ASSERT(
+BOOST_CORE_STATIC_ASSERT(
     ! std::is_default_constructible<
         params_encoded_ref>::value);
 
-BOOST_STATIC_ASSERT(
+BOOST_CORE_STATIC_ASSERT(
     std::is_copy_constructible<
         params_encoded_ref>::value);
 
-BOOST_STATIC_ASSERT(
+BOOST_CORE_STATIC_ASSERT(
     std::is_copy_assignable<
         params_encoded_ref>::value);
 
@@ -771,12 +771,34 @@ struct params_encoded_ref_test
     }
 
     void
+    testBorrowedRange()
+    {
+#ifdef BOOST_URL_HAS_CONCEPTS
+        // params_encoded_ref is a borrowed range
+        BOOST_CORE_STATIC_ASSERT(
+            std::ranges::borrowed_range<params_encoded_ref>);
+
+        // iterators remain valid after the ref is destroyed
+        // (as long as the underlying url stays alive)
+        url u("?first=John&last=Doe");
+        params_encoded_ref::iterator it;
+        {
+            params_encoded_ref p = u.encoded_params();
+            it = p.begin();
+        }
+        // ref is destroyed, but iterator is still valid
+        BOOST_TEST_EQ((*it).key, "first");
+#endif
+    }
+
+    void
     run()
     {
         testSpecial();
         testObservers();
         testModifiers();
         testJavadocs();
+        testBorrowedRange();
     }
 };
 

@@ -10,6 +10,8 @@
 // Test that header file is self-contained.
 #include <boost/json/storage_ptr.hpp>
 
+#include <boost/core/detail/static_assert.hpp>
+
 #include <type_traits>
 
 #include "test.hpp"
@@ -25,7 +27,7 @@
 namespace boost {
 namespace json {
 
-BOOST_STATIC_ASSERT(
+BOOST_CORE_STATIC_ASSERT(
     std::is_nothrow_move_constructible<storage_ptr>::value);
 
 class storage_ptr_test
@@ -35,7 +37,7 @@ public:
     static value jv2;
 
     struct throwing
-        : memory_resource
+        : container::pmr::memory_resource
     {
         throwing()
         {
@@ -154,7 +156,7 @@ public:
 
         struct my_resource
             : other
-            , memory_resource
+            , container::pmr::memory_resource
         {
             void*
             do_allocate(

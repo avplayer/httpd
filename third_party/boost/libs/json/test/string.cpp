@@ -10,6 +10,7 @@
 // Test that header file is self-contained.
 #include <boost/json/string.hpp>
 
+#include <boost/core/detail/static_assert.hpp>
 #include <boost/json/monotonic_resource.hpp>
 #include <boost/json/parse.hpp>
 
@@ -25,8 +26,8 @@
 namespace boost {
 namespace json {
 
-BOOST_STATIC_ASSERT( std::is_nothrow_destructible<string>::value );
-BOOST_STATIC_ASSERT( std::is_nothrow_move_constructible<string>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_destructible<string>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_move_constructible<string>::value );
 
 class string_test
 {
@@ -1047,6 +1048,37 @@ public:
             BOOST_TEST(cs2.at(1) == 'B');
 
             BOOST_TEST_THROWS_WITH_LOCATION( cs1.at(cs2.size()) );
+        }
+
+        // try_at(size_type)
+        {
+            s1 = t.v1;
+            s2 = t.v2;
+            BOOST_TEST( *s1.try_at(1) == 'b' );
+            *s1.try_at(1) = '*';
+            BOOST_TEST( *s1.try_at(1) == '*' );
+            *s1.try_at(1) = 'b';
+            BOOST_TEST( *s1.try_at(1) == 'b' );
+
+            BOOST_TEST( *s2.try_at(1) == 'B' );
+            *s2.try_at(1) = '*';
+            BOOST_TEST( *s2.try_at(1) == '*' );
+            *s2.try_at(1) = 'B';
+            BOOST_TEST( *s2.try_at(1) == 'B' );
+
+            system::error_code const ec = s1.try_at(s2.size()).error();
+            BOOST_TEST( ec == error::out_of_range );
+            BOOST_TEST( ec.has_location() );
+        }
+
+        // try_at(size_type) const
+        {
+            BOOST_TEST( *cs1.try_at(1) == 'b' );
+            BOOST_TEST( *cs2.try_at(1) == 'B' );
+
+            system::error_code const ec = s1.try_at(s2.size()).error();
+            BOOST_TEST( ec == error::out_of_range );
+            BOOST_TEST( ec.has_location() );
         }
 
         // operator[&](size_type)

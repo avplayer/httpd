@@ -21,11 +21,9 @@
 #include <boost/container/allocator.hpp>
 
 #include <boost/move/utility_core.hpp>
-#include "check_equal_containers.hpp"
 #include "movable_int.hpp"
 #include "expand_bwd_test_allocator.hpp"
 #include "expand_bwd_test_template.hpp"
-#include "dummy_test_allocator.hpp"
 #include "propagate_allocator_test.hpp"
 #include "vector_test.hpp"
 #include "default_init_test.hpp"
@@ -89,7 +87,6 @@ class recursive_vector
    recursive_vector & operator=(const recursive_vector &x)
    {  this->vector_ = x.vector_;   return *this; }
 
-   int id_;
    vector<recursive_vector> vector_;
    vector<recursive_vector>::iterator it_;
    vector<recursive_vector>::const_iterator cit_;
@@ -113,10 +110,9 @@ struct GetAllocatorCont
    template<class ValueType>
    struct apply
    {
-      typedef vector< ValueType
-                    , typename allocator_traits<VoidAllocator>
-                        ::template portable_rebind_alloc<ValueType>::type
-                    > type;
+      typedef typename allocator_traits<VoidAllocator>
+         ::template portable_rebind_alloc<ValueType>::type rebound_allocator_type;
+      typedef vector< ValueType, rebound_allocator_type> type;
    };
 };
 
@@ -128,18 +124,23 @@ int test_cont_variants()
    typedef typename GetAllocatorCont<VoidAllocator>::template apply<test::movable_and_copyable_int>::type MyCopyMoveCont;
    typedef typename GetAllocatorCont<VoidAllocator>::template apply<test::copyable_int>::type MyCopyCont;
    typedef typename GetAllocatorCont<VoidAllocator>::template apply<test::moveconstruct_int>::type MyMoveConstructCont;
+   typedef typename GetAllocatorCont<VoidAllocator>::template apply<test::overaligned_copyable_int>::type MyOverAlignCont;
 
-   if(test::vector_test<MyCont>())
+   if (test::vector_test<MyCont>())
       return 1;
-   if(test::vector_test<MyMoveCont>())
+   if (test::vector_test<MyMoveCont>())
       return 1;
-   if(test::vector_test<MyCopyMoveCont>())
+   if (test::vector_test<MyCopyMoveCont>())
       return 1;
-   if(test::vector_test<MyCopyCont>())
+   if (test::vector_test<MyCopyCont>())
       return 1;
    if (test::vector_test<MyMoveConstructCont>())
       return 1;
-
+   #if !defined(__cpp_aligned_new)  //old std::allocators don't support overaligned types
+   BOOST_IF_CONSTEXPR(!dtl::is_same<typename MyCont::allocator_type, std::allocator<int> >::value)
+   #endif
+   if (test::vector_test<MyOverAlignCont>())
+      return 1;
    return 0;
 }
 
@@ -200,7 +201,8 @@ bool test_merge_empty_free()
    return !empty.get_stored_allocator().deallocate_called_without_allocate_;
 }
 
-#if defined(__cpp_lib_span)
+#if defined(__cpp_lib_span) && (!defined(_LIBCPP_VERSION) || (_LIBCPP_VERSION >= 15000))
+//libcpp 14 does not correctly support deduction guides for Span
 #     define BOOST_VECTOR_TEST_HAS_SPAN
 #endif
 
@@ -223,11 +225,16 @@ bool test_span_conversion()
 
 #endif   //BOOST_VECTOR_TEST_HAS_SPAN
 
+#if !defined(_MSC_VER)
 struct POD { int POD::*ptr; };
-BOOST_STATIC_ASSERT_MSG
+BOOST_CONTAINER_STATIC_ASSERT_MSG
    ( boost::container::dtl::is_pod<POD>::value
    , "POD test failed"
    );
+#endif
+
+//Test the expected sizeof()
+BOOST_CONTAINER_STATIC_ASSERT_MSG(3*sizeof(void*) == sizeof(vector<int>), "sizeof has an unexpected value");
 
 int main()
 {
@@ -271,6 +278,11 @@ int main()
    }
    //       boost::container::allocator
    if(test_cont_variants< allocator<void> >()){
+      std::cerr << "test_cont_variants< allocator<void> > failed" << std::endl;
+      return 1;
+   }
+   //       boost::container::new_allocator
+   if(test_cont_variants< new_allocator<void> >()){
       std::cerr << "test_cont_variants< allocator<void> > failed" << std::endl;
       return 1;
    }
@@ -330,10 +342,14 @@ int main()
    ////////////////////////////////////
    {
       typedef boost::container::vector<int> cont_int;
-      cont_int a; a.push_back(0); a.push_back(1); a.push_back(2);
-      boost::intrusive::test::test_iterator_random< cont_int >(a);
-      if(boost::report_errors() != 0) {
-         return 1;
+      for (std::size_t i = 10; i <= 10000; i *= 10) {
+         cont_int a;
+         for (int j = 0; j < (int)i; ++j)
+            a.push_back((int)j);
+         boost::intrusive::test::test_iterator_random< cont_int >(a);
+         if (boost::report_errors() != 0) {
+            return 1;
+         }
       }
    }
 
@@ -381,7 +397,7 @@ int main()
       typedef boost::container::vector<int> cont;
       typedef cont::allocator_type allocator_type;
       typedef boost::container::allocator_traits<allocator_type>::pointer pointer;
-      BOOST_STATIC_ASSERT_MSG
+      BOOST_CONTAINER_STATIC_ASSERT_MSG
          ( !boost::has_trivial_destructor_after_move<pointer>::value ||
            (boost::has_trivial_destructor_after_move<cont>::value ==
             boost::has_trivial_destructor_after_move<allocator_type>::value)
@@ -393,7 +409,7 @@ int main()
       typedef boost::container::vector<int, std::allocator<int> > cont;
       typedef cont::allocator_type allocator_type;
       typedef boost::container::allocator_traits<allocator_type>::pointer pointer;
-      BOOST_STATIC_ASSERT_MSG
+      BOOST_CONTAINER_STATIC_ASSERT_MSG
          ( !boost::has_trivial_destructor_after_move<pointer>::value ||
            (boost::has_trivial_destructor_after_move<cont>::value ==
             boost::has_trivial_destructor_after_move<allocator_type>::value)
@@ -402,7 +418,7 @@ int main()
    }
 
    ////////////////////////////////////
-   //    POD types should not be 0-filled testing
+   //    POD types should not be 0-filled
    ////////////////////////////////////
 #if !defined(_MSC_VER)
    // MSVC miscompiles value initialization of pointers to data members,

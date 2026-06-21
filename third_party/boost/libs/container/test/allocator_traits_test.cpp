@@ -9,9 +9,9 @@
 //////////////////////////////////////////////////////////////////////////////
 #include <cstddef>
 #include <boost/container/allocator_traits.hpp>
-#include <boost/static_assert.hpp>
 #include <boost/container/detail/type_traits.hpp>
 #include <boost/container/detail/function_detector.hpp>
+#include <boost/container/detail/pair.hpp>
 #include <boost/move/utility_core.hpp>
 #include <memory>
 #if defined(BOOST_NO_CXX11_VARIADIC_TEMPLATES)
@@ -250,66 +250,66 @@ int main()
    test_void_allocator();
 
    //SimpleAllocator
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::value_type, int>::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::pointer, int*>::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::const_pointer, const int*>::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::void_pointer, void*>::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::const_void_pointer, const void*>::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::difference_type, std::ptrdiff_t>::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::size_type, std::size_t>::value ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < SimpleAllocator<int> >::propagate_on_container_copy_assignment::value == false ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < SimpleAllocator<int> >::propagate_on_container_move_assignment::value == false ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < SimpleAllocator<int> >::propagate_on_container_swap::value == false ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < SimpleAllocator<int> >::is_always_equal::value == true ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < SimpleAllocator<int> >::is_partially_propagable::value == false ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::rebind_traits<double>::allocator_type
                        , SimpleAllocator<double> >::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < SimpleAllocator<int> >::rebind_alloc<double>::value_type
                        , double >::value ));
 
    //ComplexAllocator
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::value_type, int>::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::pointer,  SimpleSmartPtr<int> >::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::const_pointer, SimpleSmartPtr<const int> >::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::void_pointer, SimpleSmartPtr<void> >::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::const_void_pointer, SimpleSmartPtr<const void> >::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::difference_type, signed short>::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::size_type, unsigned short>::value ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < ComplexAllocator<int> >::propagate_on_container_copy_assignment::value == true ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < ComplexAllocator<int> >::propagate_on_container_move_assignment::value == true ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < ComplexAllocator<int> >::propagate_on_container_swap::value == true ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < ComplexAllocator<int> >::is_always_equal::value == false ));
-   BOOST_STATIC_ASSERT(( boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( boost::container::allocator_traits
                        < ComplexAllocator<int> >::is_partially_propagable::value == true ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::rebind_traits<double>::allocator_type
                        , ComplexAllocator<double> >::value ));
-   BOOST_STATIC_ASSERT(( is_same<boost::container::allocator_traits
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<boost::container::allocator_traits
                        < ComplexAllocator<int> >::rebind_alloc<double>::value_type
                        , double >::value ));
 
@@ -320,27 +320,36 @@ int main()
    CAlloc c_alloc;
    SAlloc s_alloc;
 
-   //allocate
-   CAllocTraits::allocate(c_alloc, 1);
-   BOOST_TEST(c_alloc.allocate_called());
+   //allocate/deallocate
+   {
+      CAllocTraits::pointer p = CAllocTraits::allocate(c_alloc, 1);
+      BOOST_TEST(c_alloc.allocate_called());
 
-   SAllocTraits::allocate(s_alloc, 1);
-   BOOST_TEST(s_alloc.allocate_called());
+      CAllocTraits::deallocate(c_alloc, p, 1);
+      BOOST_TEST(c_alloc.deallocate_called());
+   }
+   {
+      SAllocTraits::pointer p = SAllocTraits::allocate(s_alloc, 1);
+      BOOST_TEST(s_alloc.allocate_called());
 
-   //deallocate
-   CAllocTraits::deallocate(c_alloc, CAllocTraits::pointer(), 1);
-   BOOST_TEST(c_alloc.deallocate_called());
-
-   SAllocTraits::deallocate(s_alloc, SAllocTraits::pointer(), 1);
-   BOOST_TEST(s_alloc.deallocate_called());
+      SAllocTraits::deallocate(s_alloc, p, 1);
+      BOOST_TEST(s_alloc.deallocate_called());
+   }
 
    //allocate with hint
-   CAllocTraits::allocate(c_alloc, 1, CAllocTraits::const_void_pointer());
-   BOOST_TEST(c_alloc.allocate_hint_called());
-
-   s_alloc.allocate_called_ = false;
-   SAllocTraits::allocate(s_alloc, 1, SAllocTraits::const_void_pointer());
-   BOOST_TEST(s_alloc.allocate_called());
+   {
+      CAllocTraits::pointer p = CAllocTraits::allocate(c_alloc, 1, CAllocTraits::const_void_pointer());
+      BOOST_TEST(c_alloc.allocate_hint_called());
+      CAllocTraits::deallocate(c_alloc, p, 1);
+      BOOST_TEST(c_alloc.deallocate_called());
+   }
+   {      
+      s_alloc.allocate_called_ = false;
+      SAllocTraits::pointer p = SAllocTraits::allocate(s_alloc, 1, SAllocTraits::const_void_pointer());
+      BOOST_TEST(s_alloc.allocate_called());
+      SAllocTraits::deallocate(s_alloc, p, 1);
+      BOOST_TEST(s_alloc.deallocate_called());
+   }
 
    //destroy
    float dummy;
@@ -350,7 +359,7 @@ int main()
    SAllocTraits::destroy(s_alloc, &dummy);
 
    //max_size
-   CAllocTraits::max_size(c_alloc);
+   BOOST_TEST(0 != CAllocTraits::max_size(c_alloc));
    BOOST_TEST(c_alloc.max_size_called());
 
    BOOST_TEST(SAllocTraits::size_type(-1)/sizeof(SAllocTraits::value_type) == SAllocTraits::max_size(s_alloc));
@@ -421,6 +430,20 @@ int main()
       SAllocTraits::construct(s_alloc, &c, 0, 1, 2);
       BOOST_TEST(!c.copymoveconstructed() && !c.moved());
    }
+
+   {
+      boost::container::dtl::pair<copymovable, copymovable> cp;
+      copymovable k(99, 100, 101);
+      SAllocTraits::construct(s_alloc, &cp, boost::container::try_emplace_t(), boost::move(k), 1, 2, 3);
+      BOOST_TEST(cp.first.moved() && !cp.second.copymoveconstructed() && !cp.second.moved());
+   }
+   {
+      boost::container::dtl::pair<copymovable, copymovable> cp;
+      copymovable k(99, 100, 101);
+      CAllocTraits::construct(c_alloc, &cp, boost::container::try_emplace_t(), boost::move(k), 1, 2, 3);
+      BOOST_TEST(cp.first.moved() && !cp.second.copymoveconstructed() && !cp.second.moved());
+   }
+
    //storage_is_unpropagable
    {
       SAlloc s_alloc2;

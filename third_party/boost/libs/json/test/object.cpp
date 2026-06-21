@@ -10,6 +10,7 @@
 // Test that header file is self-contained.
 #include <boost/json/object.hpp>
 
+#include <boost/core/detail/static_assert.hpp>
 #include <boost/json/monotonic_resource.hpp>
 #include <boost/json/parse.hpp>
 #include <boost/json/serialize.hpp>
@@ -50,8 +51,8 @@ struct throws_on_convert
 
 } // namespace
 
-BOOST_STATIC_ASSERT( std::is_nothrow_destructible<object>::value );
-BOOST_STATIC_ASSERT( std::is_nothrow_move_constructible<object>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_destructible<object>::value );
+BOOST_CORE_STATIC_ASSERT( std::is_nothrow_move_constructible<object>::value );
 
 class object_test
 {
@@ -130,55 +131,109 @@ public:
         std::declval<T const&>() != std::declval<U const&>()
             )>> : std::true_type {};
 
-    BOOST_STATIC_ASSERT(  std::is_constructible<object::iterator, object::iterator>::value);
-    BOOST_STATIC_ASSERT(! std::is_constructible<object::iterator, object::const_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_constructible<object::iterator, object::iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        ! std::is_constructible<
+            object::iterator, object::const_iterator>::value));
 
-    BOOST_STATIC_ASSERT(  std::is_constructible<object::const_iterator, object::iterator>::value);
-    BOOST_STATIC_ASSERT(  std::is_constructible<object::const_iterator, object::const_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_constructible<
+            object::const_iterator, object::iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_constructible<
+            object::const_iterator, object::const_iterator>::value));
 
-    BOOST_STATIC_ASSERT(  std::is_assignable<object::iterator&, object::iterator>::value);
-    BOOST_STATIC_ASSERT(! std::is_assignable<object::iterator&, object::const_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_assignable<object::iterator&, object::iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        ! std::is_assignable<
+            object::iterator&, object::const_iterator>::value));
 
-    BOOST_STATIC_ASSERT(  std::is_assignable<object::const_iterator&, object::iterator>::value);
-    BOOST_STATIC_ASSERT(  std::is_assignable<object::const_iterator&, object::const_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_assignable<object::const_iterator&, object::iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_assignable<
+            object::const_iterator&, object::const_iterator>::value));
 
-    BOOST_STATIC_ASSERT(is_equal_comparable<object::iterator, object::iterator>::value);
-    BOOST_STATIC_ASSERT(is_equal_comparable<object::iterator, object::const_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        is_equal_comparable<object::iterator, object::iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        is_equal_comparable<object::iterator, object::const_iterator>::value));
 
-    BOOST_STATIC_ASSERT(is_equal_comparable<object::const_iterator, object::iterator>::value);
-    BOOST_STATIC_ASSERT(is_equal_comparable<object::const_iterator, object::const_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        is_equal_comparable<object::const_iterator, object::iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        is_equal_comparable<
+            object::const_iterator, object::const_iterator>::value));
 
-    BOOST_STATIC_ASSERT(is_unequal_comparable<object::iterator, object::iterator>::value);
-    BOOST_STATIC_ASSERT(is_unequal_comparable<object::iterator, object::const_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        is_unequal_comparable<object::iterator, object::iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        is_unequal_comparable<
+            object::iterator, object::const_iterator>::value));
 
-    BOOST_STATIC_ASSERT(is_unequal_comparable<object::const_iterator, object::iterator>::value);
-    BOOST_STATIC_ASSERT(is_unequal_comparable<object::const_iterator, object::const_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        is_unequal_comparable<
+            object::const_iterator, object::iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        is_unequal_comparable<
+            object::const_iterator, object::const_iterator>::value));
 
-    BOOST_STATIC_ASSERT(  std::is_constructible<object::reverse_iterator, object::reverse_iterator>::value);
-    // std::reverse_iterator ctor is not SFINAEd
-    //BOOST_STATIC_ASSERT(! std::is_constructible<object::reverse_iterator, object::const_reverse_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_constructible<
+            object::reverse_iterator, object::reverse_iterator>::value));
 
-    BOOST_STATIC_ASSERT(  std::is_constructible<object::const_reverse_iterator, object::reverse_iterator>::value);
-    BOOST_STATIC_ASSERT(  std::is_constructible<object::const_reverse_iterator, object::const_reverse_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_constructible<
+            object::const_reverse_iterator, object::reverse_iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_constructible<
+            object::const_reverse_iterator,
+            object::const_reverse_iterator>::value));
 
-    BOOST_STATIC_ASSERT(  std::is_assignable<object::reverse_iterator&, object::reverse_iterator>::value);
-    // std::reverse_iterator assignment is not SFINAEd
-    //BOOST_STATIC_ASSERT(! std::is_assignable<object::reverse_iterator&, object::const_reverse_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_assignable<
+            object::reverse_iterator&, object::reverse_iterator>::value));
 
-    BOOST_STATIC_ASSERT(  std::is_assignable<object::const_reverse_iterator&, object::reverse_iterator>::value);
-    BOOST_STATIC_ASSERT(  std::is_assignable<object::const_reverse_iterator&, object::const_reverse_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_assignable<
+            object::const_reverse_iterator&,
+            object::reverse_iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        std::is_assignable<
+            object::const_reverse_iterator&,
+            object::const_reverse_iterator>::value));
 
-    BOOST_STATIC_ASSERT(is_equal_comparable<object::reverse_iterator, object::reverse_iterator>::value);
-    BOOST_STATIC_ASSERT(is_equal_comparable<object::reverse_iterator, object::const_reverse_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        is_equal_comparable<
+            object::reverse_iterator, object::reverse_iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        is_equal_comparable<
+            object::reverse_iterator, object::const_reverse_iterator>::value));
 
-    BOOST_STATIC_ASSERT(is_equal_comparable<object::const_reverse_iterator, object::reverse_iterator>::value);
-    BOOST_STATIC_ASSERT(is_equal_comparable<object::const_reverse_iterator, object::const_reverse_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        is_equal_comparable<
+            object::const_reverse_iterator, object::reverse_iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        is_equal_comparable<
+            object::const_reverse_iterator,
+            object::const_reverse_iterator>::value));
 
-    BOOST_STATIC_ASSERT(is_unequal_comparable<object::reverse_iterator, object::reverse_iterator>::value);
-    BOOST_STATIC_ASSERT(is_unequal_comparable<object::reverse_iterator, object::const_reverse_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        is_unequal_comparable<
+            object::reverse_iterator, object::reverse_iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        is_unequal_comparable<
+            object::reverse_iterator, object::const_reverse_iterator>::value));
 
-    BOOST_STATIC_ASSERT(is_unequal_comparable<object::const_reverse_iterator, object::reverse_iterator>::value);
-    BOOST_STATIC_ASSERT(is_unequal_comparable<object::const_reverse_iterator, object::const_reverse_iterator>::value);
+    BOOST_CORE_STATIC_ASSERT((
+        is_unequal_comparable<
+            object::const_reverse_iterator, object::reverse_iterator>::value));
+    BOOST_CORE_STATIC_ASSERT((
+        is_unequal_comparable<
+            object::const_reverse_iterator,
+            object::const_reverse_iterator>::value));
 
     static
     void
@@ -1350,6 +1405,24 @@ public:
             BOOST_TEST_THROWS_WITH_LOCATION( (std::move(o1).at("d")) );
             value&& rv = std::move(o1).at("a");
             (void)rv;
+        }
+
+        // try_at(key) &
+        {
+            BOOST_TEST( o1.try_at("a")->is_number() );
+
+            system::error_code const ec = o1.try_at("d").error();
+            BOOST_TEST( ec == error::out_of_range );
+            BOOST_TEST( ec.has_location() );
+        }
+
+        // try_at(key) const&
+        {
+            BOOST_TEST( co1.try_at("a")->is_number() );
+
+            system::error_code const ec = o1.try_at("d").error();
+            BOOST_TEST( ec == error::out_of_range );
+            BOOST_TEST( ec.has_location() );
         }
 
         // operator[&](key)

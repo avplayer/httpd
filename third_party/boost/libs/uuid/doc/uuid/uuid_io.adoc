@@ -1,0 +1,305 @@
+[#uuid_io]
+== <boost/uuid/uuid_io.hpp>
+
+:idprefix: uuid_io_
+
+=== Synopsis
+
+[source,c++]
+----
+namespace boost {
+namespace uuids {
+
+// stream insertion
+
+template<class Ch, class Traits>
+  std::basic_ostream<Ch, Traits>&
+    operator<<( std::basic_ostream<Ch, Traits>& os, uuid const& u );
+
+// stream extraction
+
+template<class Ch, class Traits>
+  std::basic_istream<Ch, Traits>&
+    operator>>( std::basic_istream<Ch, Traits>& is, uuid& u );
+
+// to_chars
+
+template<class OutputIterator>
+  constexpr OutputIterator to_chars( uuid const& u, OutputIterator out );
+
+template<class Ch>
+  constexpr bool to_chars( uuid const& u, Ch* first, Ch* last ) noexcept;
+
+template<class Ch, std::size_t N>
+  constexpr Ch* to_chars( uuid const& u, Ch (&buffer)[ N ] ) noexcept;
+
+// to_string
+
+std::string to_string( uuid const& u );
+std::wstring to_wstring( uuid const& u );
+
+// from_chars
+
+enum class from_chars_error
+{
+    none = 0,
+
+    unexpected_end_of_input,
+    hex_digit_expected,
+    dash_expected,
+    closing_brace_expected,
+    unexpected_extra_input
+};
+
+template<class Ch> struct from_chars_result
+{
+    Ch const* ptr;
+    from_chars_error ec;
+
+    constexpr explicit operator bool() const noexcept;
+};
+
+template<class Ch>
+  constexpr from_chars_result<Ch>
+    from_chars( Ch const* first, Ch const* last, uuid& u ) noexcept;
+
+// uuid_from_string
+
+template<class Ch> constexpr uuid uuid_from_string( Ch const* str );
+template<class Str> constexpr uuid uuid_from_string( Str const& str );
+
+}} // namespace boost::uuids
+----
+
+=== Stream Insertion
+
+```
+template<class Ch, class Traits>
+  std::basic_ostream<Ch, Traits>&
+    operator<<( std::basic_ostream<Ch, Traits>& os, uuid const& u );
+```
+
+Requires: :: `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: :: Inserts the string representation of `u` into the output stream `os`.
++
+The string representation of a `uuid` is `hhhhhhhh-hhhh-hhhh-hhhh-hhhhhhhhhhhh`, where `h` is a lowercase hexadecimal digit.
+
+NOTE: This operator also enables the use of
+  https://www.boost.org/doc/libs/release/doc/html/boost_lexical_cast/synopsis.html[boost::lexical_cast]
+  to convert a `uuid` to a string.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+uuid u1 = random_generator()();
+
+std::cout << u1 << std::endl;
+
+std::string s1 = boost::lexical_cast<std::string>( u1 );
+
+std::cout << s1 << std::endl;
+```
+
+=== Stream Extraction
+
+```
+template<class Ch, class Traits>
+  std::basic_istream<Ch, Traits>&
+    operator>>( std::basic_istream<Ch, Traits>& is, uuid& u );
+```
+
+Requires: :: `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: :: Parses a `uuid` string representation from `is` and stores the result into `u`.
+
+NOTE: This operator also enables the use of
+  https://www.boost.org/doc/libs/release/doc/html/boost_lexical_cast/synopsis.html[boost::lexical_cast]
+  to convert a string to a `uuid`.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+uuid u1 = random_generator()();
+
+std::stringstream ss;
+ss << u1;
+
+uuid u2 = boost::lexical_cast<uuid>( ss.str() );
+
+assert( u1 == u2 );
+
+uuid u3;
+ss >> u3;
+
+assert( u1 == u3 );
+```
+
+=== to_chars
+
+```
+template<class OutputIterator>
+  constexpr OutputIterator to_chars( uuid const& u, OutputIterator out );
+```
+
+Effects: :: Outputs the string representation of `u` (exactly 36 characters of type `char`) to the output iterator `out`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+uuid u = random_generator()();
+
+std::vector<char> v;
+
+to_chars( u, std::back_inserter( v ) );
+```
+
+```
+template<class Ch>
+  constexpr bool to_chars( uuid const& u, Ch* first, Ch* last ) noexcept;
+```
+
+Requires: :: `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: :: If `last - first >= 36`, writes the string representation of `u` (exactly 36 characters, not null terminated) into the buffer starting at `first` and returns `true`. Otherwise, returns `false`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+uuid u = random_generator()();
+
+char buf[ 36 ];
+
+bool ret = to_chars( u, std::begin( buf ), std::end( buf ) );
+assert( ret );
+
+std::cout << std::string( buf, 36 ) << std::endl;
+```
+
+```
+template<class Ch, std::size_t N>
+  constexpr Ch* to_chars( uuid const& u, Ch (&buffer)[ N ] ) noexcept;
+```
+
+Requires: :: `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`); `N` must be at least 37.
+
+Effects: :: Writes the string representation of `u` (exactly 37 characters, including the null terminator) into `buffer`.
+
+Returns: :: `buffer + 36`.
+
+NOTE: This function is only `constexpr` under {cpp}14 or later, and under GCC 9 or later, Clang 9 or later, or MSVC 14.25 or later.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+uuid u = random_generator()();
+
+char buf[ 37 ];
+
+to_chars( u, buf );
+
+std::cout << buf << std::endl;
+```
+
+NOTE: As a special exception, `N` is allowed to be 36.
+  In this case, the function writes exactly 36 characters into `buffer` and does not write a null terminator.
+  This use is only supported for backward compatibility and is deprecated.
+  Use a buffer of 37 characters instead, to allow for the null terminator.
+
+=== to_string
+
+The functions `to_string` and `to_wstring` are provided as a convenience to convert a `uuid` to a string.
+They are likely to be more efficient than https://www.boost.org/doc/libs/release/doc/html/boost_lexical_cast/synopsis.html[boost::lexical_cast].
+
+```
+std::string to_string( uuid const& u );
+```
+```
+std::wstring to_wstring( uuid const& u );
+```
+
+Returns: :: A string containing the string representation of `u`.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+uuid u = random_generator()();
+
+std::string s1 = to_string( u );
+
+std::wstring s2 = to_wstring( u );
+```
+
+=== from_chars_result
+
+The `from_chars_result` structure contains the result of a `from_chars` call, where the `ptr` member points to the first character that was
+not consumed during parsing and `ec` is `from_chars_error::none`, if parsing succeeded, otherwise the error code returned by the parser.
+
+```
+constexpr explicit operator bool() const noexcept;
+```
+
+Returns: :: `this\->ec == from_chars_error::none`.
+
+=== from_chars
+
+```
+template<class Ch>
+  constexpr from_chars_result<Ch>
+    from_chars( Ch const* first, Ch const* last, uuid& u ) noexcept;
+```
+
+Requires: :: `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: ::
+  Parses a `uuid` string representation from the characters in the range `[first, last)` and stores the result in `u`.
+  On error, the returned `from_chars_result` struct contains the error code in `ec` and `ptr` points to the character at which parsing failed.
+  On success, `ec` contains `from_chars_error::none` and `ptr` points to the character immediately after the last `uuid` character.
+
+NOTE: The values `from_chars_error::closing_brace_expected` and `from_chars_error::unexpected_extra_input` are never returned by `from_chars`.
+  They can be returned from the nonthrowing `string_generator::operator()` overload.
+
+=== uuid_from_string
+
+```
+template<class Ch> constexpr uuid uuid_from_string( Ch const* str );
+```
+
+Requires: :: `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: ::
+  Parses a `uuid` string representation from the characters in the range `[str, str + std::char_traits<Ch>::length(str))` and stores the result in `u`.
+  On error, throws `invalid_uuid`.
+
+NOTE:  Unlike `from_chars`, this function does not allow extra input; if after a complete UUID is parsed, unconsumed characters remain, an exception is thrown.
+
+```
+template<class Str> constexpr uuid uuid_from_string( Str const& str );
+```
+
+Requires: ::
+  `Str` must be a _string-like_ type; that is, one with a nested `value_type` type (`Ch`) and with a nested `traits_type` type.
+  `str.data()` must return `Ch const*`. `str.data() + str.size()` must be of type `Ch const*`.
+  `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: ::
+  Parses a `uuid` string representation from the characters in the range `[str.data(), str.data() + str.size())` and stores the result in `u`.
+  On error, throws `invalid_uuid`.
+
+NOTE:  Unlike `from_chars`, this function does not allow extra input; if after a complete UUID is parsed, unconsumed characters remain, an exception is thrown.

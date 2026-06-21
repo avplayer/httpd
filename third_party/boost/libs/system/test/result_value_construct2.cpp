@@ -69,6 +69,20 @@ result<std::vector<int>> fv2()
     return {{ 1, 2 }};
 }
 
+result<void> fw0()
+{
+    return {};
+}
+
+struct E2
+{
+};
+
+BOOST_NORETURN void throw_exception_from_error( E const &, boost::source_location const& )
+{
+    throw E2();
+}
+
 int main()
 {
     {
@@ -146,6 +160,13 @@ int main()
         BOOST_TEST_EQ( r->size(), 2 );
         BOOST_TEST_EQ( r->at(0), 1 );
         BOOST_TEST_EQ( r->at(1), 2 );
+    }
+
+    {
+        result<void> r = fw0();
+
+        BOOST_TEST( r.has_value() );
+        BOOST_TEST( !r.has_error() );
     }
 
     return boost::report_errors();

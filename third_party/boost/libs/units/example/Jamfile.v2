@@ -1,0 +1,27 @@
+# Jamfile.v2
+#
+# Copyright (c) 2007-2008
+# Steven Watanabe
+#
+# Distributed under the Boost Software License, Version 1.0. (See
+# accompanying file LICENSE_1_0.txt or copy at
+# http://www.boost.org/LICENSE_1_0.txt
+
+import testing ;
+
+project :
+  : requirements <warnings>all
+    <library>/boost/units//boost_units
+;
+
+files = [ glob *.cpp : performance.* runtime_unit.* ] ;
+
+for local file in $(files)
+{
+    run $(file) ;
+}
+
+path-constant HERE : . ;
+
+compile performance.cpp /boost/timer//boost_timer /boost/ublas//boost_ublas : <define>BOOST_TIMER_ENABLE_DEPRECATED ;
+run runtime_unit.cpp : <$(HERE)/runtime_unit_input.txt ;

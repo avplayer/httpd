@@ -10,10 +10,13 @@
 // Test that header file is self-contained.
 #include <boost/json/value_to.hpp>
 
+#include <boost/core/detail/static_assert.hpp>
 #include <boost/json/value_from.hpp>
 #include <boost/core/ignore_unused.hpp>
 #include <boost/describe/class.hpp>
 #include <boost/describe/enum.hpp>
+#include <boost/variant2/variant.hpp>
+#include <boost/config.hpp>
 
 #include "test_suite.hpp"
 
@@ -21,6 +24,14 @@
 #include <map>
 #include <unordered_map>
 #include <vector>
+
+#ifndef BOOST_NO_CXX17_HDR_VARIANT
+# include <variant>
+#endif
+
+#ifndef BOOST_NO_CXX17_HDR_FILESYSTEM
+# include <filesystem>
+#endif // BOOST_NO_CXX17_HDR_FILESYSTEM
 
 namespace value_to_test_ns
 {
@@ -30,7 +41,7 @@ struct T1 { };
 //----------------------------------------------------------
 struct T2 { };
 
-boost::json::result<T2>
+boost::system::result<T2>
 tag_invoke(
     boost::json::try_value_to_tag<T2>,
     boost::json::value const& jv)
@@ -51,7 +62,7 @@ tag_invoke(
 {
     boost::json::string const* str = jv.if_string();
     if( !str )
-        throw boost::json::system_error(
+        throw boost::system::system_error(
             make_error_code(boost::json::error::not_string));
     if ( *str != "T3" )
         throw std::invalid_argument("");
@@ -109,8 +120,18 @@ BOOST_DESCRIBE_STRUCT(T6, (), (n, d))
 struct T7 : T6
 {
     std::string s;
+
+    bool
+    get_b() const
+    {
+        return b;
+    }
+
+private:
+    bool b = false;
+
+    BOOST_DESCRIBE_CLASS(T7, (T6), (s), (), (b))
 };
-BOOST_DESCRIBE_STRUCT(T7, (T6), (s))
 
 //----------------------------------------------------------
 
@@ -147,7 +168,7 @@ struct custom_context
 struct T9
 { };
 
-boost::json::result<T9>
+boost::system::result<T9>
 tag_invoke(
     boost::json::try_value_to_tag<T9>,
     boost::json::value const& jv,
@@ -157,6 +178,40 @@ tag_invoke(
     if( str && *str == "T9" )
         return T9{};
     return make_error_code(boost::json::error::syntax);
+}
+
+// not default-constructible
+struct T11
+{
+    int n;
+
+    explicit T11( int v )
+        : n(v)
+    {}
+};
+T11
+tag_invoke(
+    boost::json::value_to_tag<T11>,
+    boost::json::value const& jv)
+{
+    return T11( jv.to_number<int>() );
+}
+
+struct T12
+{
+    T12(int) {}
+};
+
+T12
+tag_invoke(boost::json::value_to_tag<T12>, boost::json::value const&)
+{
+    return T12(0);
+}
+
+void
+tag_invoke(boost::json::value_from_tag, boost::json::value& jv , T12&)
+{
+    jv.emplace_null();
 }
 
 } // namespace value_to_test_ns
@@ -182,6 +237,12 @@ struct tuple_size<value_to_test_ns::T4>
 namespace boost {
 namespace json {
 
+template<std::size_t N>
+struct is_sequence_like< std::array<value_to_test_ns::T12, N> >
+    : std::false_type
+{};
+
+
 template<>
 struct is_null_like<::value_to_test_ns::T1> : std::true_type { };
 
@@ -202,7 +263,7 @@ struct can_apply_value_to<T, detail::void_t<decltype(
 {
 };
 
-BOOST_STATIC_ASSERT(!can_apply_value_to<int>::value);
+BOOST_CORE_STATIC_ASSERT( !can_apply_value_to<int>::value );
 
 class value_to_test
 {
@@ -340,6 +401,8 @@ public:
             (value_to<std::tuple<int, int, int, int>>(
                 value{1, 2, 3}, ctx... )));
 
+        // just check that this compiles
+        value_to< std::array<value_to_test_ns::T12, 3> >( value{1, 2, 3} );
     }
 
     void
@@ -350,10 +413,11 @@ public:
             detail::try_reserve(
                 v, 10, detail::reserve_implementation<decltype(v)>());
             BOOST_TEST(v.capacity() >= 10);
-            BOOST_STATIC_ASSERT(std::is_same<
-                decltype(detail::inserter(
-                    v, detail::inserter_implementation<decltype(v)>())),
-                decltype(std::back_inserter(v)) >::value);
+            BOOST_CORE_STATIC_ASSERT((
+                std::is_same<
+                    decltype(detail::inserter(
+                        v, detail::inserter_implementation<decltype(v)>())),
+                    decltype(std::back_inserter(v)) >::value));
         }
         {
             std::array<int, 2> arr;
@@ -394,17 +458,19 @@ public:
             BOOST_TEST( res->d == 0.125 );
 
             jv.as_object()["x"] = 0;
-            BOOST_TEST_THROWS_WITH_LOCATION(
-                value_to<::value_to_test_ns::T6>( jv ));
+            res = try_value_to<::value_to_test_ns::T6>(
+                jv, ctx... );
+            BOOST_TEST( res );
         }
         {
-            value jv = {{"n", 1}, {"d", 2}, {"s", "xyz"}};
+            value jv = {{"n", 1}, {"d", 2}, {"s", "xyz"}, {"b", true}};
             auto res = try_value_to<::value_to_test_ns::T7>(
                 jv, ctx... );
             BOOST_TEST( res );
             BOOST_TEST( res->n == 1 );
             BOOST_TEST( res->d == 2 );
             BOOST_TEST( res->s == "xyz" );
+            BOOST_TEST( res->get_b() == true );
         }
 
         BOOST_TEST_THROWS_WITH_LOCATION(
@@ -441,15 +507,15 @@ public:
             BOOST_TEST( std::nullopt == res->opt_s );
 
             jv.as_object()["x"] = 0;
-            BOOST_TEST_THROWS_WITH_LOCATION(
-                value_to<::value_to_test_ns::T8>( jv, ctx... ));
+            res = try_value_to<::value_to_test_ns::T8>(
+                jv, ctx... );
+            BOOST_TEST( res );
 #endif // BOOST_NO_CXX17_HDR_OPTIONAL
         }
 
-        BOOST_TEST_THROWS(
+        BOOST_TEST_THROWS_WITH_LOCATION(
             value_to<::value_to_test_ns::T10>(
-                value{{"n", 0}, {"t3", "t10"}}, ctx... ),
-            std::invalid_argument);
+                value{{"n", 0}, {"t3", "t10"}}, ctx... ));
 #endif // BOOST_DESCRIBE_CXX14
     }
 
@@ -470,24 +536,24 @@ public:
 #endif
     }
 
-    template< class... Context >
+    template<
+        template <class...> class Variant, class Monostate, class... Context >
     static
     void
     testVariant( Context const& ... ctx )
     {
-        ignore_unused( ctx... );
-#ifndef BOOST_NO_CXX17_HDR_VARIANT
-        using Var = std::variant<int, ::value_to_test_ns::T2, std::string>;
+        using std::get;
+        using Var = Variant<int, ::value_to_test_ns::T2, std::string>;
 
         value jv(4);
         auto v = value_to<Var>( jv, ctx... );
         BOOST_TEST( v.index() == 0 );
-        BOOST_TEST( std::get<0>(v) == 4 );
+        BOOST_TEST( get<0>(v) == 4 );
 
         jv = "foobar";
         v = value_to<Var>( jv, ctx... );
         BOOST_TEST( v.index() == 2 );
-        BOOST_TEST( std::get<2>(v) == "foobar" );
+        BOOST_TEST( get<2>(v) == "foobar" );
 
         jv = "T2";
         v = value_to<Var>( jv, ctx... );
@@ -497,10 +563,37 @@ public:
         BOOST_TEST_THROWS_WITH_LOCATION(
             value_to<Var>( jv, ctx... ));
 
-        value_to<std::monostate>( value(), ctx... );
+        value_to<Monostate>( value(), ctx... );
         BOOST_TEST_THROWS_WITH_LOCATION(
-            value_to<std::monostate>( jv, ctx... ));
-#endif // BOOST_NO_CXX17_HDR_VARIANT
+            value_to<Monostate>( jv, ctx... ));
+
+        jv = 1024;
+        using VT11 = Variant< value_to_test_ns::T11 >;
+        VT11 v11 = value_to< VT11 >( jv, ctx... );
+        BOOST_TEST( v11.index() == 0 );
+        BOOST_TEST( get<0>(v11).n == 1024 );
+
+        jv = nullptr;
+        using V_T3_T1 = Variant<value_to_test_ns::T3, value_to_test_ns::T1>;
+        auto v_t3_t1 = value_to<V_T3_T1>( jv, ctx... );
+        BOOST_TEST( v_t3_t1.index() == 1 );
+    }
+
+    template< class... Context >
+    static
+    void testPath( Context const& ... ctx )
+    {
+        ignore_unused( ctx... );
+#ifndef BOOST_NO_CXX17_HDR_FILESYSTEM
+        using Paths = std::vector<std::filesystem::path>;
+        value jv = value{"from/here", "to/there", "", "c:/" , "..", "../"};
+        auto paths = value_to<Paths>( jv, ctx... );
+        BOOST_TEST(
+            paths == (Paths{
+                "from/here", "to/there", "", "c:/" , "..", "../"}) );
+        BOOST_TEST_THROWS_WITH_LOCATION(
+            value_to<std::filesystem::path>( value(1), ctx... ));
+#endif // BOOST_NO_CXX17_HDR_FILESYSTEM
     }
 
     template< class... Context >
@@ -513,13 +606,12 @@ public:
             // clang 3.8 seems to have some bug when dealing with a lot of
             // template instantiations; this assert magically makes the problem
             // go away, I assume, by instantiating the needed types beforehand
-            BOOST_STATIC_ASSERT(
+            BOOST_CORE_STATIC_ASSERT((
                 detail::conversion_round_trips<
-                    mp11::mp_first<
-                        mp11::mp_list<
-                            Context..., int> >,
+                    mp11::mp_first< mp11::mp_list<Context..., int> >,
                     ::value_to_test_ns::T2,
-                    detail::value_to_conversion>::value );
+                    detail::value_to_conversion
+                >::value));
 
             auto res = try_value_to<::value_to_test_ns::T2>(
                 value(), ctx... );
@@ -534,7 +626,7 @@ public:
         {
             BOOST_TEST_THROWS(
                 value_to<::value_to_test_ns::T2>( value(), ctx... ),
-                system_error);
+                system::system_error);
         }
         // nonthrowing overload falls back to throwing customization
         {
@@ -702,7 +794,7 @@ public:
         BOOST_TEST_THROWS(
             value_to<value_to_test_ns::T9>(
                 value(), value_to_test_ns::custom_context() ),
-            system_error);
+            system::system_error);
     }
 
     struct run_templated_tests
@@ -718,7 +810,11 @@ public:
             testNullptr( Context()... );
             testDescribed( Context()... );
             testOptional( Context()... );
-            testVariant( Context()... );
+            testVariant< variant2::variant, variant2::monostate > ( Context()... );
+#ifndef BOOST_NO_CXX17_HDR_VARIANT
+            testVariant< std::variant, std::monostate > ( Context()... );
+#endif // BOOST_NO_CXX17_HDR_VARIANT
+            testPath( Context()... );
             testNonThrowing( Context()... );
             testUserConversion( Context()... );
         }

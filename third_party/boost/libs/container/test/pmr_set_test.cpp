@@ -9,8 +9,8 @@
 //////////////////////////////////////////////////////////////////////////////
 
 #include <boost/container/pmr/set.hpp>
-#include <boost/static_assert.hpp>
 #include <boost/container/detail/type_traits.hpp>
+#include <boost/container/pmr/monotonic_buffer_resource.hpp>
 
 int main()
 {
@@ -18,9 +18,13 @@ int main()
    using boost::container::dtl::is_same;
 
    typedef set<int, std::less<int>, pmr::polymorphic_allocator<int> > intcontainer_t;
-   BOOST_STATIC_ASSERT(( is_same<intcontainer_t, pmr::set_of<int>::type >::value ));
+   BOOST_CONTAINER_STATIC_ASSERT(( is_same<intcontainer_t, pmr::set_of<int>::type >::value ));
    #if !defined(BOOST_NO_CXX11_TEMPLATE_ALIASES)
-      BOOST_STATIC_ASSERT(( is_same<intcontainer_t, pmr::set<int> >::value ));
+      BOOST_CONTAINER_STATIC_ASSERT(( is_same<intcontainer_t, pmr::set<int> >::value ));
    #endif
+
+   intcontainer_t cont(pmr::get_default_resource());
+   typedef intcontainer_t::value_type value_type;
+   cont.insert(value_type());
    return 0;
 }

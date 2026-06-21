@@ -8,15 +8,15 @@
 #define BOOST_LOCALE_TEST_TOOLS_HPP
 
 #include <boost/locale/encoding.hpp>
-#include "boostLocale/test/posix_tools.hpp"
-#include "boostLocale/test/unit_test.hpp"
+#include "posix_tools.hpp"
+#include "unit_test.hpp"
 #include <cstdio>
 #include <ctime>
 #include <fstream>
 #include <sstream>
 #include <string>
 #ifndef BOOST_LOCALE_NO_WINAPI_BACKEND
-#    include "../src/boost/locale/win32/lcid.hpp"
+#    include "../src/win32/lcid.hpp"
 #else
 #    include <boost/core/ignore_unused.hpp>
 #endif
@@ -113,6 +113,14 @@ std::basic_string<Char> to(const std::string& utf8)
     return out;
 }
 
+#ifdef __cpp_lib_char8_t
+template<>
+std::basic_string<char8_t> to(const std::string& utf8)
+{
+    return std::basic_string<char8_t>(utf8.begin(), utf8.end());
+}
+#endif
+
 /// Convert an ASCII string to the given char type (i.e. copy only)
 template<typename Char, size_t size>
 inline std::basic_string<Char> ascii_to(const char (&str)[size])
@@ -199,6 +207,7 @@ std::string get_std_name(const std::string& name, std::string* real_name = nullp
 
 #if BOOST_LOCALE_USE_WIN32_API
     const bool utf8 = name.find("UTF-8") != std::string::npos;
+    const char* alt_name = nullptr;
 
     if(name == "en_US.UTF-8" || name == "en_US.ISO8859-1") {
         if(has_std_locale("English_United States.1252")) {
@@ -206,33 +215,23 @@ std::string get_std_name(const std::string& name, std::string* real_name = nullp
                 *real_name = "English_United States.1252";
             return utf8 ? name : "en_US.windows-1252";
         }
-        return "";
     } else if(name == "he_IL.UTF-8" || name == "he_IL.ISO8859-8") {
         if(has_std_locale("Hebrew_Israel.1255")) {
             if(real_name)
                 *real_name = "Hebrew_Israel.1255";
             return utf8 ? name : "he_IL.windows-1255";
         }
-    } else if(name == "ru_RU.UTF-8") {
-        if(has_std_locale("Russian_Russia.1251")) {
-            if(real_name)
-                *real_name = "Russian_Russia.1251";
-            return name;
-        }
-    } else if(name == "tr_TR.UTF-8") {
-        if(has_std_locale("Turkish_Turkey.1254")) {
-            if(real_name)
-                *real_name = "Turkish_Turkey.1254";
-            return name;
-        }
-    }
-    if(name == "ja_JP.SJIS") {
-        if(has_std_locale("Japanese_Japan.932")) {
-            if(real_name)
-                *real_name = "Japanese_Japan.932";
-            return name;
-        }
-        return "";
+    } else if(name == "ru_RU.UTF-8")
+        alt_name = "Russian_Russia.1251";
+    else if(name == "tr_TR.UTF-8")
+        alt_name = "Turkish_Turkey.1254";
+    else if(name == "ja_JP.SJIS")
+        alt_name = "Japanese_Japan.932";
+
+    if(alt_name && has_std_locale(alt_name)) {
+        if(real_name)
+            *real_name = alt_name;
+        return name;
     }
 #endif
     return "";

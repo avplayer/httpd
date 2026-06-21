@@ -1,0 +1,136 @@
+[#string_generator]
+== <boost/uuid/string_generator.hpp>
+
+:idprefix: string_generator_
+
+=== Synopsis
+
+[source,c++]
+----
+namespace boost {
+namespace uuids {
+
+struct string_generator
+{
+    using result_type = uuid;
+
+    template<class Str>
+      constexpr uuid operator()( Str const& s ) const;
+
+    template<class Ch>
+      constexpr uuid operator()( Ch const* s ) const;
+
+    template<class CharIterator>
+      constexpr uuid operator()( CharIterator first, CharIterator last ) const;
+
+    template<class CharIterator>
+      constexpr uuid operator()( CharIterator first, CharIterator last,
+        std::ptrdiff_t& pos, from_chars_error& err ) const noexcept;
+};
+
+}} // namespace boost::uuids
+----
+
+=== string_generator
+
+The `string_generator` class generates a `uuid` from a string.
+
+The standards-defined string format in https://www.ietf.org/rfc/rfc4122.txt[RFC 4122] (p. 3) is supported, as well as a few variants.
+
+Valid strings match the following PCRE regular expression:
+
+```txt
+^({)?([0-9a-fA-F]{8})(?-)?([0-9a-fA-F]{4})(?(DASH)-)([0-9a-fA-F]{4})(?(DASH)-)([0-9a-fA-F]{4})(?(DASH)-)([0-9a-fA-F]{12})(?(1)})$
+```
+
+Or more generally, the following formats are accepted as valid string formats, where h is hexadecimal, without case sensitivity, and without any leading or trailing whitespace:
+
+```txt
+hhhhhhhh-hhhh-hhhh-hhhh-hhhhhhhhhhhh
+{hhhhhhhh-hhhh-hhhh-hhhh-hhhhhhhhhhhh}
+hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
+{hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh}
+```
+
+Invalid input will throw an `invalid_uuid` exception.
+
+```
+template<class Str>
+  constexpr uuid operator()( Str const& s ) const;
+```
+
+Requires: ::
+  `Str` must be a _string-like_ type; that is, one with a nested `value_type` type (`Ch`) and with a nested `traits_type` type.
+  `str.data()` must return `Ch const*`. `str.data() + str.size()` must be of type `Ch const*`.
+  `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: :: Parses the string `s` into a `uuid` and returns the result.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+string_generator gen;
+
+uuid u1 = gen( std::string( "0123456789abcdef0123456789abcdef" ) );
+uuid u2 = gen( std::wstring( L"01234567-89AB-CDEF-0123-456789ABCDEF" ) );
+```
+
+```
+template<class Ch>
+  constexpr uuid operator()( Ch const* s ) const;
+```
+
+Requires: :: `Ch` must be a character type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: :: Parses the string `s` into a `uuid` and returns the result.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+string_generator gen;
+
+uuid u1 = gen( "{01234567-89ab-cdef-0123-456789abcdef}" );
+uuid u2 = gen( L"01234567-89ab-cdef-0123-456789abcdef" );
+```
+
+```
+template<class CharIterator>
+  constexpr uuid operator()( CharIterator first, CharIterator last ) const;
+```
+
+Requires: :: `CharIterator` must be an input iterator with a character value type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: :: Parses the character sequence `[first, last)` into a `uuid` and returns the result.
+
+Example: ::
++
+```
+using namespace boost::uuids;
+
+string_generator gen;
+
+std::string s1( "0123456789abcdef0123456789abcdef" );
+uuid u1 = gen( s1.begin(), s1.end() );
+
+std::wstring s2( L"01234567-89AB-CDEF-0123-456789ABCDEF" );
+uuid u2 = gen( s2.begin(), s2.end() );
+```
+
+```
+template<class CharIterator>
+  constexpr uuid operator()( CharIterator first, CharIterator last,
+    std::ptrdiff_t& pos, from_chars_error& err ) const noexcept;
+```
+
+Requires: :: `CharIterator` must be an input iterator with a character value type (one of `char`, `wchar_t`, `char8_t`, `char16_t`, `char32_t`).
+
+Effects: ::
+  Parses the character sequence `[first, last)` into a `uuid` and returns the result.
+  On error, `pos` contains the position at which parsing failed, and `err` contains the error.
+  On success, `err` contains `from_chars_error::none`.
+
+NOTE:  Unlike `from_chars`, this function does not allow extra input; if after a complete UUID is parsed, unconsumed characters remain, `err` is set to `from_chars_error::unexpected_extra_input`.
