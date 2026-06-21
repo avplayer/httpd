@@ -28,6 +28,8 @@ target_link_libraries(httpd
 	Boost::asio
 	Boost::beast
 	Boost::signals2
+	Boost::nowide
+	Boost::regex
 )
 
 
