@@ -66,21 +66,6 @@ docker build -f Dockerfile.ubuntu . -t httpd:v1
 docker build . -t httpd:v1
 ```
 
-### 常用 CMake 选项
-
-| 选项 | 默认值 | 说明 |
-|------|--------|------|
-| `-DCMAKE_BUILD_TYPE=Release` | `Release` | 构建类型（Debug / Release / RelWithDebInfo / MinSizeRel） |
-| `-DENABLE_USE_IO_URING=ON` | `OFF` | Linux 下启用 `io_uring` I/O  |
-| `-DENABLE_SYSTEM_OPENSSL=ON` | `OFF` | 使用系统安装的 OpenSSL |
-| `-DENABLE_SYSTEM_ZLIB=ON` | `OFF` | 使用系统安装的 zlib |
-| `-DENABLE_MOLD=ON` | `OFF` | 使用 mold 链接器 |
-| `-DENABLE_LLD=ON` | `OFF` | 使用 LLD 链接器 |
-| `-DENABLE_TCMALLOC_STATIC=ON` | `OFF` | 链接 tcmalloc |
-| `-DENABLE_JEMALLOC_STATIC=ON` | `OFF` | 链接 jemalloc |
-| `-DENABLE_BUILD_WITH_LIBCXX=ON` | `OFF` | Clang 下使用 libc++ |
-| `-DGENERATE_COMPILE_COMMANDS=ON` | `ON` | 生成 `compile_commands.json` |
-
 ---
 
 ## 使用方法
