@@ -49,6 +49,14 @@ namespace fs = boost::filesystem;
 #include <boost/nowide/convert.hpp>
 #include <boost/regex.hpp>
 
+#include <boost/asio/ssl.hpp>
+namespace ssl = boost::asio::ssl;
+
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
+#include <openssl/pem.h>
+
 #include "httpd/logging.hpp"
 #include "httpd/scoped_exit.hpp"
 #include "httpd/use_awaitable.hpp"
@@ -88,6 +96,279 @@ using steady_timer = net::basic_waitable_timer<
 	net::wait_traits<std::chrono::steady_clock>, executor_type>;
 
 using awaitable_void = net::awaitable<void, executor_type>;
+
+// SSL stream type wrapping tcp_stream.
+using ssl_stream = ssl::stream<tcp_stream>;
+
+// Global SSL context.
+std::shared_ptr<ssl::context> global_ssl_ctx;
+
+// Certificate info discovered from cert directory.
+struct ssl_cert_info
+{
+    fs::path cert_file;
+    fs::path key_file;
+    std::string domain;
+};
+
+// Extract the first domain name (CN or SAN) from a PEM certificate file.
+inline std::string extract_domain_from_cert(const fs::path& cert_file)
+{
+    BIO* bio = BIO_new_file(cert_file.string().c_str(), "r");
+    if (!bio)
+        return {};
+
+    X509* cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    if (!cert)
+        return {};
+
+    std::string domain;
+
+    // Try SAN first.
+    GENERAL_NAMES* names = (GENERAL_NAMES*)X509_get_ext_d2i(
+        cert, NID_subject_alt_name, nullptr, nullptr);
+    if (names)
+    {
+        int num = sk_GENERAL_NAME_num(names);
+        for (int i = 0; i < num; i++)
+        {
+            const GENERAL_NAME* name = sk_GENERAL_NAME_value(names, i);
+            if (name->type == GEN_DNS)
+            {
+                const char* dns = (const char*)ASN1_STRING_get0_data(
+                    name->d.dNSName);
+                if (dns && *dns)
+                {
+                    domain = dns;
+                    break;
+                }
+            }
+        }
+        GENERAL_NAMES_free(names);
+    }
+
+    // Fallback to CN.
+    if (domain.empty())
+    {
+#if OPENSSL_VERSION_MAJOR >= 3
+        const X509_NAME* subj = X509_get_subject_name(cert);
+#else
+        X509_NAME* subj = X509_get_subject_name(cert);
+#endif
+        if (subj)
+        {
+            char cn[256] = {};
+            int len = X509_NAME_get_text_by_NID(
+                subj, NID_commonName, cn, sizeof(cn));
+            if (len > 0)
+                domain = cn;
+        }
+    }
+
+    X509_free(cert);
+
+    // Skip wildcard prefix for display.
+    if (domain.size() > 2 && domain[0] == '*' && domain[1] == '.')
+        domain = domain.substr(2);
+
+    return domain;
+}
+
+// Scan certificate directory and discover cert/key pairs.
+// Preference order: fullchain.pem > cert.pem > *.crt > *.pem
+inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
+{
+    std::vector<ssl_cert_info> results;
+
+    boost::system::error_code ec;
+    fs::directory_iterator end;
+    fs::directory_iterator it(cert_dir, ec);
+    if (ec)
+    {
+        XLOG_ERR << "Cannot open cert directory: "
+            << cert_dir << ", err: " << ec.message();
+        return results;
+    }
+
+    // Collect all files grouped by stem.
+    std::map<std::string, std::vector<fs::path>> by_stem;
+    std::vector<fs::path> all_files;
+
+    for (; it != end; it++)
+    {
+        if (fs::is_regular_file(it->status()))
+        {
+            auto p = it->path();
+            all_files.push_back(p);
+            by_stem[p.stem().string()].push_back(p);
+        }
+    }
+
+    // Priority-ordered cert file prefixes.
+    auto is_cert_file = [](const fs::path& p) -> int
+    {
+        auto ext = p.extension().string();
+        auto stem = p.stem().string();
+
+        // Prefer fullchain.pem.
+        if (stem == "fullchain" && ext == ".pem")
+            return 100;
+        if (stem == "cert" && ext == ".pem")
+            return 80;
+        if (ext == ".crt")
+            return 60;
+        if (ext == ".cert")
+            return 50;
+        if (ext == ".pem")
+        {
+            // Check if it looks like a certificate (has BEGIN CERTIFICATE).
+            return 40;
+        }
+        return 0;
+    };
+
+    auto is_key_file = [](const fs::path& p) -> int
+    {
+        auto ext = p.extension().string();
+        auto stem = p.stem().string();
+
+        if (stem == "privkey" && ext == ".pem")
+            return 100;
+        if (stem == "key" && ext == ".pem")
+            return 80;
+        if (ext == ".key")
+            return 60;
+        return 0;
+    };
+
+    // Strategy 1: Look for well-known cert/key pairs by stem matching.
+    // Group files by common prefix (before first '-' or '_').
+    std::map<std::string, std::vector<fs::path>> cert_candidates;
+    std::map<std::string, std::vector<fs::path>> key_candidates;
+
+    for (const auto& p : all_files)
+    {
+        int cert_score = is_cert_file(p);
+        int key_score = is_key_file(p);
+
+        if (cert_score > 0)
+        {
+            auto stem = p.stem().string();
+            // For "fullchain.pem" etc., use a special key.
+            if (stem == "fullchain" || stem == "cert")
+                cert_candidates["_default_"].push_back(p);
+            else
+            {
+                // Extract prefix before first '-', '_', or '.' (excluding ext).
+                auto prefix = stem;
+                auto sep = prefix.find_first_of("-_");
+                if (sep != std::string::npos)
+                    prefix = prefix.substr(0, sep);
+                cert_candidates[prefix].push_back(p);
+            }
+        }
+
+        if (key_score > 0)
+        {
+            auto stem = p.stem().string();
+            if (stem == "privkey" || stem == "key")
+                key_candidates["_default_"].push_back(p);
+            else
+            {
+                auto prefix = stem;
+                auto sep = prefix.find_first_of("-_");
+                if (sep != std::string::npos)
+                    prefix = prefix.substr(0, sep);
+                key_candidates[prefix].push_back(p);
+            }
+        }
+    }
+
+    // Try to match certs with keys by same prefix.
+    // For "_default_", match fullchain/cert with privkey/key.
+    for (auto& [prefix, certs] : cert_candidates)
+    {
+        if (certs.empty())
+            continue;
+
+        // Sort certs by score descending.
+        std::sort(certs.begin(), certs.end(),
+            [&](const fs::path& a, const fs::path& b)
+            {
+                return is_cert_file(a) > is_cert_file(b);
+            });
+
+        auto& keys = key_candidates[prefix];
+        if (keys.empty() && prefix != "_default_")
+        {
+            // Try default key pool.
+            keys = key_candidates["_default_"];
+        }
+
+        if (!keys.empty())
+        {
+            // Sort keys by score descending.
+            std::sort(keys.begin(), keys.end(),
+                [&](const fs::path& a, const fs::path& b)
+                {
+                    return is_key_file(a) > is_key_file(b);
+                });
+
+            ssl_cert_info info;
+            info.cert_file = certs.front();
+            info.key_file = keys.front();
+            info.domain = extract_domain_from_cert(info.cert_file);
+            results.push_back(std::move(info));
+        }
+    }
+
+    // If nothing found, try scanning all .pem / .crt files and
+    // check their content to identify cert vs key.
+    if (results.empty())
+    {
+        for (const auto& p : all_files)
+        {
+            auto ext = p.extension().string();
+            if (ext != ".pem" && ext != ".crt" && ext != ".cert")
+                continue;
+
+            // Try to read as cert.
+            auto domain = extract_domain_from_cert(p);
+            if (!domain.empty())
+            {
+                // This is a cert file. Look for a matching key.
+                // Try common key names.
+                auto dir = p.parent_path();
+                auto stem = p.stem().string();
+                std::vector<fs::path> possible_keys;
+
+                auto try_key = [&](const fs::path& kp)
+                {
+                    if (fs::exists(kp))
+                        possible_keys.push_back(kp);
+                };
+
+                try_key(dir / (stem + ".key"));
+                try_key(dir / (stem + "-key.pem"));
+                try_key(dir / (stem + "_key.pem"));
+                try_key(dir / "privkey.pem");
+                try_key(dir / "key.pem");
+
+                if (!possible_keys.empty())
+                {
+                    ssl_cert_info info;
+                    info.cert_file = p;
+                    info.key_file = possible_keys.front();
+                    info.domain = std::move(domain);
+                    results.push_back(std::move(info));
+                }
+            }
+        }
+    }
+
+    return results;
+}
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -329,8 +610,9 @@ inline awaitable_void read_from_stdin()
 	co_return;
 }
 
+template <typename Stream>
 inline awaitable_void error_session(
-	tcp_stream& stream,
+	Stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
 	http::status code,
@@ -365,8 +647,9 @@ inline awaitable_void error_session(
 	co_return;
 }
 
+template <typename Stream>
 inline awaitable_void pipe_session(
-	tcp_stream& stream, dynamic_request& req, int64_t connection_id)
+	Stream& stream, dynamic_request& req, int64_t connection_id)
 {
 	boost::system::error_code ec;
 
@@ -638,8 +921,9 @@ inline std::map<std::string, std::string> parse_query_string(std::string_view qs
 	return params;
 }
 
+template <typename Stream>
 inline awaitable_void dir_session(
-	tcp_stream& stream,
+	Stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
 	fs::path dir)
@@ -747,8 +1031,9 @@ inline awaitable_void dir_session(
 	co_return;
 }
 
+template <typename Stream>
 inline awaitable_void dir_session_json(
-	tcp_stream& stream,
+	Stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
 	fs::path dir)
@@ -848,8 +1133,9 @@ inline awaitable_void dir_session_json(
 	co_return;
 }
 
+template <typename Stream>
 inline awaitable_void file_session(
-	tcp_stream& stream,
+	Stream& stream,
 	dynamic_request& req,
 	int64_t connection_id,
 	fs::path file)
@@ -1031,7 +1317,8 @@ inline awaitable_void file_session(
 	co_return;
 }
 
-inline awaitable_void session(tcp_stream stream)
+template <typename Stream>
+inline awaitable_void session(Stream stream)
 {
 	static int64_t static_connection_id = 0;
 	static size_t num_connections = 0;
@@ -1042,7 +1329,7 @@ inline awaitable_void session(tcp_stream stream)
 	boost::system::error_code ec;
 
 	std::string remote_host;
-	auto endp = stream.socket().remote_endpoint(ec);
+	auto endp = beast::get_lowest_layer(stream).socket().remote_endpoint(ec);
 	if (!ec)
 	{
 		if (endp.address().is_v6())
@@ -1318,6 +1605,52 @@ inline awaitable_void listen(tcp_acceptor& acceptor)
 	co_return;
 }
 
+inline awaitable_void ssl_listen(
+	tcp_acceptor& acceptor, ssl::context& ctx)
+{
+	for (;;)
+	{
+		boost::system::error_code ec;
+
+		auto client =
+			co_await acceptor.async_accept(
+				ioc_awaitable[ec]);
+		if (ec)
+			break;
+
+		{
+			net::socket_base::keep_alive option(true);
+			client.set_option(option, ec);
+		}
+
+		{
+			net::ip::tcp::no_delay option(true);
+			client.set_option(option, ec);
+		}
+
+		auto ex(client.get_executor());
+		ssl_stream stream(std::move(client), ctx);
+
+		// SSL handshake.
+		co_await stream.async_handshake(
+			ssl::stream_base::server,
+			ioc_awaitable[ec]);
+		if (ec)
+		{
+			XLOG_ERR << "SSL handshake failed: "
+				<< ec.message();
+			continue;
+		}
+
+		net::co_spawn(
+			ex,
+			session(std::move(stream)),
+			net::detached);
+	}
+
+	co_return;
+}
+
 
 int main(int argc, char** argv)
 {
@@ -1325,13 +1658,15 @@ int main(int argc, char** argv)
 
 	std::string httpd_listen;
 	std::string httpd_doc;
+	std::string httpd_ssl_cert_dir;
 
 	// 解析命令行.
 	po::options_description desc("Options");
 	desc.add_options()
 		("help,h", "Help message.")
-		("listen", po::value<std::string>(&httpd_listen)->default_value("[::0]:80")->value_name("ip:port"), "Httpd tcp listen.")
-		("path", po::value<std::string>(&httpd_doc)->value_name("file/dir/pipe"), "Filename or directory or pipe.")
+		("listen", po::value<std::string>(&httpd_listen)->default_value("[::0]:80")->value_name("ip:port"), "Listen address (e.g. [::0]:80, 0.0.0.0:8080). When --ssl-cert-dir is set, serves HTTPS.")
+		("path", po::value<std::string>(&httpd_doc)->value_name("path"), "Document root directory, a single file to serve, or '-'/empty for stdin pipe mode.")
+		("ssl-cert-dir", po::value<std::string>(&httpd_ssl_cert_dir)->value_name("dir"), "SSL certificate directory. Enables HTTPS when specified.")
 		;
 
 	po::variables_map vm;
@@ -1349,6 +1684,69 @@ int main(int argc, char** argv)
 	{
 		std::cout << desc;
 		return EXIT_SUCCESS;
+	}
+
+	// SSL 证书目录处理.
+	if (vm.count("ssl-cert-dir"))
+	{
+		auto cert_dir = fs::path(httpd_ssl_cert_dir).make_preferred();
+		if (!fs::is_directory(cert_dir))
+		{
+			std::cerr << "SSL cert directory not found: "
+				<< cert_dir << "\n";
+			return EXIT_FAILURE;
+		}
+
+		auto certs = scan_cert_directory(cert_dir);
+		if (certs.empty())
+		{
+			std::cerr << "No valid SSL certificates found in: "
+				<< cert_dir << "\n";
+			return EXIT_FAILURE;
+		}
+
+		global_ssl_ctx = std::make_shared<ssl::context>(
+			ssl::context::tls_server);
+
+		for (const auto& info : certs)
+		{
+			boost::system::error_code ec;
+
+			global_ssl_ctx->use_certificate_file(
+				info.cert_file.string(),
+				ssl::context::pem, ec);
+			if (ec)
+			{
+				std::cerr << "Failed to load cert: "
+					<< info.cert_file
+					<< ", err: " << ec.message() << "\n";
+				continue;
+			}
+
+			global_ssl_ctx->use_private_key_file(
+				info.key_file.string(),
+				ssl::context::pem, ec);
+			if (ec)
+			{
+				std::cerr << "Failed to load key: "
+					<< info.key_file
+					<< ", err: " << ec.message() << "\n";
+				continue;
+			}
+
+			std::cout << "SSL certificate loaded: "
+				<< info.cert_file.filename().string()
+				<< " (domain: " << info.domain << ")"
+				<< std::endl;
+		}
+
+		// Set default password callback and verify options.
+		global_ssl_ctx->set_verify_mode(ssl::verify_none);
+		global_ssl_ctx->set_options(
+			ssl::context::default_workarounds |
+			ssl::context::no_sslv2 |
+			ssl::context::no_sslv3 |
+			ssl::context::single_dh_use);
 	}
 
 	std::string host;
@@ -1378,12 +1776,25 @@ int main(int argc, char** argv)
 	tcp_acceptor acceptor(ctx, listen_endpoint);
 
 	// 启动tcp侦听.
-	for (int i = 0; i < 16; i++)
+	if (global_ssl_ctx)
 	{
-		net::co_spawn(
-			ctx.get_executor(),
-			listen(acceptor),
-			net::detached);
+		for (int i = 0; i < 16; i++)
+		{
+			net::co_spawn(
+				ctx.get_executor(),
+				ssl_listen(acceptor, *global_ssl_ctx),
+				net::detached);
+		}
+	}
+	else
+	{
+		for (int i = 0; i < 16; i++)
+		{
+			net::co_spawn(
+				ctx.get_executor(),
+				listen(acceptor),
+				net::detached);
+		}
 	}
 
 	// 如果是pipe, 则直接启动文件读.

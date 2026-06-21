@@ -30,6 +30,12 @@ target_link_libraries(httpd
 	Boost::signals2
 	Boost::nowide
 	Boost::regex
+	OpenSSL::Crypto
+	OpenSSL::SSL
+)
+
+target_compile_definitions(httpd PRIVATE
+	OPENSSL_SUPPRESS_DEPRECATED
 )
 
 
