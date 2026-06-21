@@ -121,6 +121,8 @@ httpd --listen 0.0.0.0:8080 --path /var/www/html
 curl "http://127.0.0.1:8080/path/to/dir/?q=json"
 ```
 
+通过返回目录列表为 JSON，可用于实现在线音乐播放器，参考：[music_player](https://github.com/Jackarain/proxy/tree/master/example/music_player)，仅需要复制链接中的 `index.html` 文件到 `httpd` 参数 `--path` 指定的目录下，并将您的音乐文件一并复制到该目录下即可实现一个自建的在线音乐播放器。
+
 ### 高级应用 — FM 广播转 HTTP 流
 
 将 RTL-SDR 接收的 FM 广播转换为 HTTP TS 流（需要 RTL2832U 设备）：
