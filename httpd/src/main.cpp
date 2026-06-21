@@ -1053,6 +1053,25 @@ inline awaitable_void session(tcp_stream stream)
 
 		if (fs::is_directory(realpath))
 		{
+			// 如果目录下有 index.html 或 index.htm，则直接返回该文件.
+			boost::system::error_code index_ec;
+			auto index_path = current_path / "index.html";
+			if (!fs::exists(index_path, index_ec))
+				index_path = current_path / "index.htm";
+
+			if (!index_ec && fs::exists(index_path, index_ec))
+			{
+				co_await file_session(
+					stream,
+					req,
+					connection_id,
+					index_path);
+
+				if (keep_alive)
+					continue;
+				co_return;
+			}
+
 			co_await dir_session(
 				stream,
 				req,
