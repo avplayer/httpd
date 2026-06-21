@@ -82,7 +82,7 @@ httpd [选项]
 | `--listen <ip:port>` | `[::0]:80` | 监听地址和端口（支持 IPv4 和 IPv6） |
 | `--path <file/dir/pipe>` | 标准输入 | 提供服务的文件路径、目录路径或 `-`（标准输入管道模式） |
 
-> 由于启用了 `allow_long_disguise`，`--listen` 也可写作 `-listen`，`--path` 也可写作 `-path`。
+> 由于启用了 `allow_long_disguise`，`--listen` 也可写作 `-listen` 或 `-l`，`--path` 也可写作 `-p`。
 
 ---
 
