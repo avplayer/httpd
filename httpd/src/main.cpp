@@ -605,6 +605,39 @@ inline std::vector<std::wstring> format_path_list(const std::set<fs::path>& path
 	return path_list;
 }
 
+inline std::map<std::string, std::string> parse_query_string(std::string_view qs)
+{
+	std::map<std::string, std::string> params;
+	if (qs.empty())
+		return params;
+
+	std::string_view::size_type start = 0;
+	while (start < qs.size())
+	{
+		auto amp = qs.find('&', start);
+		auto eq = qs.find('=', start);
+		auto end = (amp == std::string_view::npos) ? qs.size() : amp;
+
+		if (eq != std::string_view::npos && eq < end)
+		{
+			auto key = qs.substr(start, eq - start);
+			auto value = qs.substr(eq + 1, end - eq - 1);
+			params[std::string(key)] = std::string(value);
+		}
+		else
+		{
+			auto key = qs.substr(start, end - start);
+			params[std::string(key)] = "";
+		}
+
+		if (amp == std::string_view::npos)
+			break;
+		start = amp + 1;
+	}
+
+	return params;
+}
+
 inline awaitable_void dir_session(
 	tcp_stream& stream,
 	dynamic_request& req,
@@ -693,6 +726,107 @@ inline awaitable_void dir_session(
 	res.keep_alive(req.keep_alive());
 	res.content_length(body.size());
 	res.body() = boost::nowide::narrow(body);
+	res.prepare_payload();
+
+	http::serializer<
+		false,
+		string_body,
+		http::fields> sr(res);
+
+	co_await http::async_write(
+		stream,
+		sr,
+		ioc_awaitable[ec]);
+
+	if (ec)
+		XLOG_ERR << "Session: "
+			<< connection_id
+			<< ", err: "
+			<< ec.message();
+
+	co_return;
+}
+
+inline awaitable_void dir_session_json(
+	tcp_stream& stream,
+	dynamic_request& req,
+	int64_t connection_id,
+	fs::path dir)
+{
+	XLOG_DBG << "Session: "
+		<< connection_id
+		<< ", path: "
+		<< dir
+		<< ", json listing";
+
+	boost::system::error_code ec;
+
+	fs::directory_iterator end;
+	fs::directory_iterator it(dir, ec);
+
+	if (ec)
+	{
+		XLOG_WARN << "Session: "
+			<< connection_id
+			<< ", path: "
+			<< dir
+			<< ", err: "
+			<< ec.message();
+
+		co_await error_session(
+			stream,
+			req,
+			connection_id,
+			http::status::internal_server_error,
+			"Internal server error");
+
+		co_return;
+	}
+
+	std::string json = "[\n";
+	bool first = true;
+
+	for (; it != end; it++)
+	{
+		const auto& item = it->path();
+
+		if (!first)
+			json += ",\n";
+		first = false;
+
+		auto filename = boost::nowide::narrow(item.filename().wstring());
+		auto [ftime, unc_path] = file_last_wirte_time(item);
+
+		if (fs::is_directory(item, ec))
+		{
+			json += fmt::format(
+				R"(  {{"last_write_time": "{}", "filename": "{}", "is_dir": true}})",
+				ftime, filename);
+		}
+		else
+		{
+			auto sz = static_cast<float>(fs::file_size(item, ec));
+			if (ec)
+				sz = 0;
+			json += fmt::format(
+				R"(  {{"last_write_time": "{}", "filename": "{}", "is_dir": false, "filesize": {}}})",
+				ftime, filename, static_cast<int64_t>(sz));
+		}
+	}
+
+	json += "\n]\n";
+
+	string_response res{
+		http::status::ok,
+		req.version()
+	};
+
+	res.set(http::field::server, version_string);
+	res.set(http::field::date, server_date_string());
+	res.set(http::field::content_type, "application/json; charset=utf-8");
+	res.keep_alive(req.keep_alive());
+	res.content_length(json.size());
+	res.body() = std::move(json);
 	res.prepare_payload();
 
 	http::serializer<
@@ -1031,6 +1165,15 @@ inline awaitable_void session(tcp_stream stream)
 		if (!target.empty() && target[0] == '/')
 			target.erase(0, 1);
 
+		// 解析查询字符串 (如 ?q=json).
+		std::string query_string;
+		auto qpos = target.find('?');
+		if (qpos != std::string::npos)
+		{
+			query_string = target.substr(qpos + 1);
+			target.resize(qpos);
+		}
+
 		// 构造完整路径以及根据请求的目标构造路径.
 		auto current_path = fs::canonical(global_path /
 			boost::nowide::widen(target), ec).make_preferred();
@@ -1053,6 +1196,22 @@ inline awaitable_void session(tcp_stream stream)
 
 		if (fs::is_directory(realpath))
 		{
+			// 如果请求带有 ?q=json 查询参数, 则返回 JSON 格式的目录列表.
+			auto query_params = parse_query_string(query_string);
+			if (auto qit = query_params.find("q");
+				qit != query_params.end() && qit->second == "json")
+			{
+				co_await dir_session_json(
+					stream,
+					req,
+					connection_id,
+					current_path);
+
+				if (keep_alive)
+					continue;
+				co_return;
+			}
+
 			// 如果目录下有 index.html 或 index.htm，则直接返回该文件.
 			boost::system::error_code index_ec;
 			auto index_path = current_path / "index.html";
