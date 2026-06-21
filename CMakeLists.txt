@@ -257,8 +257,9 @@ set(Boost_USE_STATIC_RUNTIME ON)
 
 set(Boost_INCLUDE_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/third_party/boost)
 
-add_definitions(-DBOOST_ASIO_SEPARATE_COMPILATION)
-add_definitions(-DBOOST_BEAST_SEPARATE_COMPILATION)
+# Boost.Asio and Beast are header-only in Boost 1.91 (INTERFACE targets)
+# add_definitions(-DBOOST_ASIO_SEPARATE_COMPILATION)
+# add_definitions(-DBOOST_BEAST_SEPARATE_COMPILATION)
 
 add_definitions(-DBOOST_LOCALE_HIDE_AUTO_PTR)
 add_definitions(-DBOOST_BIND_GLOBAL_PLACEHOLDERS)
