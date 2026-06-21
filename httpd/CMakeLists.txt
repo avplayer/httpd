@@ -27,6 +27,7 @@ add_executable(httpd
 target_link_libraries(httpd
 	Boost::asio
 	Boost::beast
+	Boost::signals2
 )
 
 
