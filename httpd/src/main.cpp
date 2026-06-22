@@ -1865,7 +1865,9 @@ int main(int argc, char** argv)
 
 	// 初始化日志系统，可指定日志输出目录.
 	if (vm.count("log-dir"))
+	{
 		xlogger::init_logging(httpd_log_dir);
+	}
 
 	// SSL 证书目录处理.
 	if (vm.count("ssl-cert-dir"))
@@ -1896,9 +1898,8 @@ int main(int argc, char** argv)
 		{
 			boost::system::error_code ec;
 
-			global_ssl_ctx->use_certificate_file(
-				info.cert_file.string(),
-				ssl::context::pem, ec);
+			global_ssl_ctx->use_certificate_chain_file(
+				info.cert_file.string(), ec);
 			if (ec)
 			{
 				XLOG_ERR << "Failed to load cert: "
@@ -1924,8 +1925,7 @@ int main(int argc, char** argv)
 			break; // 目前只使用找到的第一个有效证书.
 		}
 
-		// Set default password callback and verify options.
-		global_ssl_ctx->set_verify_mode(ssl::verify_none);
+		// verify options.
 		global_ssl_ctx->set_options(
 			ssl::context::default_workarounds |
 			ssl::context::no_sslv2 |
