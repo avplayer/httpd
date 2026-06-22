@@ -1844,12 +1844,9 @@ int main(int argc, char** argv)
 
 	net::io_context ctx;
 
-	auto listen_endpoint =
-		*tcp_resolver(ctx).resolve(
-			host,
-			port,
-			tcp_resolver::passive
-		).begin();
+	auto listen_endpoint = tcp::endpoint(
+			net::ip::make_address(host),
+			static_cast<unsigned short>(std::stoi(port)));
 
 	tcp_acceptor acceptor(ctx, listen_endpoint);
 
