@@ -1833,6 +1833,7 @@ int main(int argc, char** argv)
 	std::string httpd_doc;
 	std::string httpd_ssl_cert_dir;
 	std::string httpd_lfs_storage_dir;
+	std::string httpd_log_dir;
 
 	// 解析命令行.
 	po::options_description desc("Options");
@@ -1842,6 +1843,7 @@ int main(int argc, char** argv)
 		("path", po::value<std::string>(&httpd_doc)->value_name("path"), "Document root directory, a single file to serve, or '-'/empty for stdin pipe mode.")
 		("ssl-cert-dir", po::value<std::string>(&httpd_ssl_cert_dir)->value_name("dir"), "SSL certificate directory. Enables HTTPS when specified.")
 		("lfs-storage-dir", po::value<std::string>(&httpd_lfs_storage_dir)->value_name("dir"), "Git LFS storage directory. Enables LFS batch API and file transfer endpoints when specified.")
+		("log-dir", po::value<std::string>(&httpd_log_dir)->value_name("dir"), "Log file output directory.")
 		;
 
 	po::variables_map vm;
@@ -1860,6 +1862,10 @@ int main(int argc, char** argv)
 		std::cout << desc;
 		return EXIT_SUCCESS;
 	}
+
+	// 初始化日志系统，可指定日志输出目录.
+	if (vm.count("log-dir"))
+		xlogger::init_logging(httpd_log_dir);
 
 	// SSL 证书目录处理.
 	if (vm.count("ssl-cert-dir"))
@@ -1958,6 +1964,12 @@ int main(int argc, char** argv)
 	{
 		global_path = fs::canonical(fs::path(httpd_doc).make_preferred());
 		XLOG_INFO << "Document root: " << global_path;
+	}
+
+	if (vm.count("log-dir"))
+	{
+		XLOG_INFO << "Log directory: " << httpd_log_dir
+			<< " (log file: " << xlogger::log_path() << ")";
 	}
 
 	// 启动tcp侦听.
