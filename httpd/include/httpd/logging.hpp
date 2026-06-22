@@ -824,17 +824,14 @@ private:
 #endif // DISABLE_XLOGGER_THREAD_SAFE
 
 #ifndef LOGGER_DBG_VIEW_
-#if defined(WIN32) && \
-	(defined(LOGGER_DBG_VIEW) || \
-	defined(DEBUG) || \
-	defined(_DEBUG))
-#define LOGGER_DBG_VIEW_(x)                \
-	do {                                   \
-		::OutputDebugStringW((x).c_str()); \
-	} while (0)
-#else
-#define LOGGER_DBG_VIEW_(x) ((void)0)
-#endif // WIN32 && LOGGER_DBG_VIEW
+# if defined(WIN32) && (defined(DEBUG) || defined(_DEBUG))
+#  define LOGGER_DBG_VIEW_(x)           \
+    do {                                \
+     ::OutputDebugStringW((x).c_str()); \
+    } while (0)
+# else
+#  define LOGGER_DBG_VIEW_(x) ((void)0)
+# endif // WIN32
 #endif // LOGGER_DBG_VIEW_
 
 enum logger_level__ {
@@ -1813,7 +1810,7 @@ public:
 };
 } // namespace xlogger
 
-#if (!defined(NDEBUG) || defined(ENABLE_XLOGGER)) && !defined(DISABLE_XLOGGER)
+#if !defined(NDEBUG) && !defined(DISABLE_XLOGGER)
 
 // API for logging.
 namespace xlogger {
