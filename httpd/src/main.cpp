@@ -678,6 +678,10 @@ template <typename Stream>
 inline awaitable_void pipe_session(
 	Stream& stream, dynamic_request& req, int64_t connection_id)
 {
+	XLOG_INFO << "Session: "
+		<< connection_id
+		<< ", pipe session started";
+
 	boost::system::error_code ec;
 
 	using buffer_queue_type = std::deque<publish_subscribe::data_type>;
@@ -735,6 +739,8 @@ inline awaitable_void pipe_session(
 		co_return;
 	}
 
+	int64_t total_bytes = 0;
+
 	do
 	{
 		if (buffer_queue.empty())
@@ -760,6 +766,7 @@ inline awaitable_void pipe_session(
 			res.body().data = p->data();
 			res.body().size = p->size();
 			res.body().more = true;
+			total_bytes += p->size();
 		}
 
 		co_await http::async_write(
@@ -782,6 +789,11 @@ inline awaitable_void pipe_session(
 			co_return;
 		}
 	} while (!sr.is_done());
+
+	XLOG_INFO << "Session: "
+		<< connection_id
+		<< ", pipe session finished, total bytes: "
+		<< total_bytes;
 
 	co_return;
 }
@@ -1271,10 +1283,22 @@ inline awaitable_void file_session(
 
 		content_length = r.second - r.first + 1;
 		res.set(http::field::content_range, content_range);
+
+		XLOG_DBG << "Session: "
+			<< connection_id
+			<< ", range request: "
+			<< content_range;
 	}
 
 	res.keep_alive(req.keep_alive());
 	res.content_length(content_length);
+
+	XLOG_INFO << "Session: "
+		<< connection_id
+		<< ", serving file: "
+		<< file.filename()
+		<< ", size: "
+		<< strutil::add_suffix(static_cast<float>(content_length));
 
 	response_serializer sr(res);
 
@@ -1404,7 +1428,23 @@ inline awaitable_void session(Stream stream)
 			ioc_awaitable[ec]);
 
 		if (ec)
+		{
+			XLOG_WARN << "Session: "
+				<< connection_id
+				<< ", async_read_header: "
+				<< ec.message();
 			co_return;
+		}
+
+		auto& req_ref = parser.get();
+		XLOG_INFO << "Session: "
+			<< connection_id
+			<< ", "
+			<< std::string(req_ref.method_string())
+			<< " "
+			<< std::string(req_ref.target())
+			<< ", host: "
+			<< remote_host;
 
 		if (parser.get()[http::field::expect] == "100-continue")
 		{
@@ -1434,6 +1474,10 @@ inline awaitable_void session(Stream stream)
 			// POST /objects/batch  — LFS 批处理请求.
 			if (target_str == "/objects/batch" && method == http::verb::post)
 			{
+				XLOG_INFO << "Session: "
+					<< connection_id
+					<< ", LFS batch request";
+
 				// 读取完整的请求体（含 body）.
 				co_await http::async_read(
 					stream, buffer, parser, ioc_awaitable[ec]);
@@ -1455,6 +1499,13 @@ inline awaitable_void session(Stream stream)
 				auto oid = target_str.substr(7); // 跳过 "/files/"
 				if (!oid.empty())
 				{
+					XLOG_INFO << "Session: "
+						<< connection_id
+						<< ", LFS file "
+						<< (method == http::verb::put ? "upload" : "download")
+						<< ", oid: "
+						<< std::string(oid);
+
 					// PUT 请求需要读取 body.
 					if (method == http::verb::put)
 					{
@@ -1549,6 +1600,11 @@ inline awaitable_void session(Stream stream)
 				http::status::not_found,
 				"Not Found");
 
+			XLOG_WARN << "Session: "
+				<< connection_id
+				<< ", path traversal blocked: "
+				<< target;
+
 			if (keep_alive)
 				continue;
 			co_return;
@@ -1563,6 +1619,11 @@ inline awaitable_void session(Stream stream)
 			if (auto qit = query_params.find("q");
 				qit != query_params.end() && qit->second == "json")
 			{
+				XLOG_DBG << "Session: "
+					<< connection_id
+					<< ", directory JSON listing for: "
+					<< current_path;
+
 				co_await dir_session_json(
 					stream,
 					req,
@@ -1582,6 +1643,11 @@ inline awaitable_void session(Stream stream)
 
 			if (!index_ec && fs::exists(index_path, index_ec))
 			{
+				XLOG_DBG << "Session: "
+					<< connection_id
+					<< ", serving index file: "
+					<< index_path;
+
 				co_await file_session(
 					stream,
 					req,
@@ -1592,6 +1658,11 @@ inline awaitable_void session(Stream stream)
 					continue;
 				co_return;
 			}
+
+			XLOG_DBG << "Session: "
+				<< connection_id
+				<< ", directory listing for: "
+				<< current_path;
 
 			co_await dir_session(
 				stream,
@@ -1606,6 +1677,11 @@ inline awaitable_void session(Stream stream)
 
 		if (fs::is_regular_file(realpath))
 		{
+			XLOG_DBG << "Session: "
+				<< connection_id
+				<< ", serving file: "
+				<< current_path;
+
 			co_await file_session(
 				stream,
 				req,
@@ -1626,6 +1702,11 @@ inline awaitable_void session(Stream stream)
 				http::status::not_found,
 				"Not Found");
 
+			XLOG_WARN << "Session: "
+				<< connection_id
+				<< ", path not found: "
+				<< current_path;
+
 			if (keep_alive)
 				continue;
 			co_return;
@@ -1638,6 +1719,11 @@ inline awaitable_void session(Stream stream)
 			http::status::bad_request,
 			"Bad request");
 
+		XLOG_WARN << "Session: "
+			<< connection_id
+			<< ", bad request for: "
+			<< current_path;
+
 		if (keep_alive)
 			continue;
 		co_return;
@@ -1648,6 +1734,10 @@ inline awaitable_void session(Stream stream)
 
 inline awaitable_void listen(tcp_acceptor& acceptor)
 {
+	auto local_endpoint = acceptor.local_endpoint();
+	XLOG_INFO << "HTTP listening on "
+		<< net::ip::tcp::endpoint(local_endpoint);
+
 	for (;;)
 	{
 		boost::system::error_code ec;
@@ -1671,6 +1761,8 @@ inline awaitable_void listen(tcp_acceptor& acceptor)
 		auto ex(client.get_executor());
 		tcp_stream stream(std::move(client));
 
+		XLOG_DBG << "New connection accepted, spawning session...";
+
 		net::co_spawn(
 			ex,
 			session(std::move(stream)),
@@ -1683,6 +1775,10 @@ inline awaitable_void listen(tcp_acceptor& acceptor)
 inline awaitable_void ssl_listen(
 	tcp_acceptor& acceptor, ssl::context& ctx)
 {
+	auto local_endpoint = acceptor.local_endpoint();
+	XLOG_INFO << "HTTPS listening on "
+		<< net::ip::tcp::endpoint(local_endpoint);
+
 	for (;;)
 	{
 		boost::system::error_code ec;
@@ -1716,6 +1812,8 @@ inline awaitable_void ssl_listen(
 				<< ec.message();
 			continue;
 		}
+
+		XLOG_DBG << "SSL handshake successful, spawning session...";
 
 		net::co_spawn(
 			ex,
@@ -1767,20 +1865,23 @@ int main(int argc, char** argv)
 	if (vm.count("ssl-cert-dir"))
 	{
 		auto cert_dir = fs::path(httpd_ssl_cert_dir).make_preferred();
+		XLOG_INFO << "Scanning SSL certificate directory: " << cert_dir;
+
 		if (!fs::is_directory(cert_dir))
 		{
-			std::cerr << "SSL cert directory not found: "
-				<< cert_dir << "\n";
+			XLOG_ERR << "SSL cert directory not found: " << cert_dir;
 			return EXIT_FAILURE;
 		}
 
 		auto certs = scan_cert_directory(cert_dir);
 		if (certs.empty())
 		{
-			std::cerr << "No valid SSL certificates found in: "
-				<< cert_dir << "\n";
+			XLOG_ERR << "No valid SSL certificates found in: " << cert_dir;
 			return EXIT_FAILURE;
 		}
+
+		XLOG_INFO << "Found " << certs.size()
+			<< " certificate(s) in: " << cert_dir;
 
 		global_ssl_ctx = std::make_shared<ssl::context>(
 			ssl::context::tls_server);
@@ -1794,9 +1895,9 @@ int main(int argc, char** argv)
 				ssl::context::pem, ec);
 			if (ec)
 			{
-				std::cerr << "Failed to load cert: "
+				XLOG_ERR << "Failed to load cert: "
 					<< info.cert_file
-					<< ", err: " << ec.message() << "\n";
+					<< ", err: " << ec.message();
 				continue;
 			}
 
@@ -1805,16 +1906,15 @@ int main(int argc, char** argv)
 				ssl::context::pem, ec);
 			if (ec)
 			{
-				std::cerr << "Failed to load key: "
+				XLOG_ERR << "Failed to load key: "
 					<< info.key_file
-					<< ", err: " << ec.message() << "\n";
+					<< ", err: " << ec.message();
 				continue;
 			}
 
-			std::cout << "SSL certificate loaded: "
+			XLOG_INFO << "SSL certificate loaded: "
 				<< info.cert_file.filename().string()
-				<< " (domain: " << info.domain << ")"
-				<< std::endl;
+				<< " (domain: " << info.domain << ")";
 			break; // 目前只使用找到的第一个有效证书.
 		}
 
@@ -1850,9 +1950,20 @@ int main(int argc, char** argv)
 
 	tcp_acceptor acceptor(ctx, listen_endpoint);
 
+	XLOG_INFO << "Starting httpd server..."
+		<< " listen=" << httpd_listen
+		<< " mode=" << (global_ssl_ctx ? "HTTPS" : "HTTP");
+
+	if (vm.count("path") && !httpd_doc.empty() && httpd_doc != "-")
+	{
+		global_path = fs::canonical(fs::path(httpd_doc).make_preferred());
+		XLOG_INFO << "Document root: " << global_path;
+	}
+
 	// 启动tcp侦听.
 	if (global_ssl_ctx)
 	{
+		XLOG_INFO << "Spawning 16 SSL accept coroutines...";
 		for (int i = 0; i < 16; i++)
 		{
 			net::co_spawn(
@@ -1863,6 +1974,7 @@ int main(int argc, char** argv)
 	}
 	else
 	{
+		XLOG_INFO << "Spawning 16 accept coroutines...";
 		for (int i = 0; i < 16; i++)
 		{
 			net::co_spawn(
@@ -1877,14 +1989,12 @@ int main(int argc, char** argv)
 	{
 		global_pipe = true;
 
+		XLOG_INFO << "Pipe mode enabled, reading from stdin...";
+
 		net::co_spawn(
 			ctx.get_executor(),
 			read_from_stdin(),
 			net::detached);
-	}
-	else
-	{
-		global_path = fs::canonical(fs::path(httpd_doc).make_preferred());
 	}
 
 	// Git LFS 存储目录.
@@ -1895,14 +2005,18 @@ int main(int argc, char** argv)
 		fs::create_directories(global_lfs_storage_dir, lfs_ec);
 		if (lfs_ec)
 		{
-			std::cerr << "Failed to create LFS storage directory: "
-				<< global_lfs_storage_dir << ", err: " << lfs_ec.message() << "\n";
+			XLOG_ERR << "Failed to create LFS storage directory: "
+				<< global_lfs_storage_dir << ", err: " << lfs_ec.message();
 			return EXIT_FAILURE;
 		}
-		std::cout << "Git LFS storage directory: " << global_lfs_storage_dir << "\n";
+		XLOG_INFO << "Git LFS storage directory: " << global_lfs_storage_dir;
 	}
 
+	XLOG_INFO << "httpd server started, entering event loop...";
+
 	ctx.run();
+
+	XLOG_INFO << "httpd server stopped.";
 
 	return EXIT_SUCCESS;
 }
