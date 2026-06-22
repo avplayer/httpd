@@ -193,6 +193,22 @@ inline int count_cert_chain_depth(const fs::path& file)
     return count;
 }
 
+// Check if a PEM file contains a private key.
+inline int check_key_file(const fs::path& file)
+{
+    BIO* bio = BIO_new_file(file.string().c_str(), "r");
+    if (!bio)
+        return 0;
+
+    EVP_PKEY* pkey = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    if (!pkey)
+        return 0;
+
+    EVP_PKEY_free(pkey);
+    return 100;
+}
+
 // Scan certificate directory and discover cert/key pairs.
 // Preference order: by certificate chain depth (more certs = fuller chain).
 inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
@@ -238,18 +254,18 @@ inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
         return depth;
     };
 
+    // Score key files by actual content (must be a valid private key).
     auto is_key_file = [](const fs::path& p) -> int
     {
         auto ext = p.extension().string();
-        auto stem = p.stem().string();
 
-        if (stem == "privkey" && ext == ".pem")
-            return 100;
-        if (stem == "key" && ext == ".pem")
-            return 80;
-        if (ext == ".key")
-            return 60;
-        return 0;
+        // Must have a key-like extension.
+        if (ext != ".pem" && ext != ".key")
+            return 0;
+
+        // Verify it's a real private key by parsing the file content.
+        auto score = check_key_file(p);
+        return score;
     };
 
     // Strategy 1: Look for well-known cert/key pairs by stem matching.
