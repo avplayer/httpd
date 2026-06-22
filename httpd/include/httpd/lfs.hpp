@@ -158,7 +158,8 @@ template <typename Stream>
 inline awaitable_void lfs_batch_session(
     Stream& stream,
     http::request<http::dynamic_body>& req,
-    int64_t connection_id)
+    int64_t connection_id,
+    bool is_ssl = false)
 {
     boost::system::error_code ec;
 
@@ -224,8 +225,8 @@ inline awaitable_void lfs_batch_session(
     }
 
     // 构建响应.
-    // 从 Host 头获取服务器地址.
-    std::string server_url = "http://";
+    // 根据当前连接是否使用 SSL 来决定协议前缀.
+    std::string server_url = is_ssl ? "https://" : "http://";
     auto host_it = req.find(http::field::host);
     if (host_it != req.end())
         server_url += host_it->value();

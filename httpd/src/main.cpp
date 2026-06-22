@@ -15,6 +15,7 @@
 #include <string_view>
 #include <chrono>
 #include <tuple>
+#include <type_traits>
 
 #include <fmt/xchar.h>
 #include <fmt/format.h>
@@ -1487,7 +1488,8 @@ inline awaitable_void session(Stream stream)
 				dynamic_request req = parser.release();
 
 				co_await lfs_batch_session(
-					stream, req, connection_id);
+					stream, req, connection_id,
+					std::is_same_v<std::decay_t<Stream>, ssl_stream>);
 				co_return;
 			}
 
