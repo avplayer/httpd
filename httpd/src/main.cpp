@@ -63,6 +63,7 @@ namespace ssl = boost::asio::ssl;
 #include "httpd/misc.hpp"
 #include "httpd/strutil.hpp"
 #include "httpd/publish_subscribe.hpp"
+#include "httpd/lfs.hpp"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -1424,6 +1425,54 @@ inline awaitable_void session(Stream stream)
 			}
 		}
 
+		// Git LFS 路由处理：在释放 parser 之前检查，以便读取请求体.
+		if (!global_lfs_storage_dir.empty())
+		{
+			auto target_str = parser.get().target();
+			auto method = parser.get().method();
+
+			// POST /objects/batch  — LFS 批处理请求.
+			if (target_str == "/objects/batch" && method == http::verb::post)
+			{
+				// 读取完整的请求体（含 body）.
+				co_await http::async_read(
+					stream, buffer, parser, ioc_awaitable[ec]);
+				if (ec)
+					co_return;
+
+				dynamic_request req = parser.release();
+
+				co_await lfs_batch_session(
+					stream, req, connection_id);
+				co_return;
+			}
+
+			// PUT /files/<oid> 或 GET /files/<oid> — LFS 文件传输.
+			if (target_str.starts_with("/files/") &&
+				(method == http::verb::put || method == http::verb::get))
+			{
+				// 提取 OID.
+				auto oid = target_str.substr(7); // 跳过 "/files/"
+				if (!oid.empty())
+				{
+					// PUT 请求需要读取 body.
+					if (method == http::verb::put)
+					{
+						co_await http::async_read(
+							stream, buffer, parser, ioc_awaitable[ec]);
+						if (ec)
+							co_return;
+					}
+
+					dynamic_request req = parser.release();
+
+					co_await lfs_file_transfer_session(
+						stream, req, connection_id, oid);
+					co_return;
+				}
+			}
+		}
+
 		dynamic_request req = parser.release();
 
 		if (beast::websocket::is_upgrade(req))
@@ -1685,6 +1734,7 @@ int main(int argc, char** argv)
 	std::string httpd_listen;
 	std::string httpd_doc;
 	std::string httpd_ssl_cert_dir;
+	std::string httpd_lfs_storage_dir;
 
 	// 解析命令行.
 	po::options_description desc("Options");
@@ -1693,6 +1743,7 @@ int main(int argc, char** argv)
 		("listen", po::value<std::string>(&httpd_listen)->default_value("[::0]:80")->value_name("ip:port"), "Listen address (e.g. [::0]:80, 0.0.0.0:8080). When --ssl-cert-dir is set, serves HTTPS.")
 		("path", po::value<std::string>(&httpd_doc)->value_name("path"), "Document root directory, a single file to serve, or '-'/empty for stdin pipe mode.")
 		("ssl-cert-dir", po::value<std::string>(&httpd_ssl_cert_dir)->value_name("dir"), "SSL certificate directory. Enables HTTPS when specified.")
+		("lfs-storage-dir", po::value<std::string>(&httpd_lfs_storage_dir)->value_name("dir"), "Git LFS storage directory. Enables LFS batch API and file transfer endpoints when specified.")
 		;
 
 	po::variables_map vm;
@@ -1837,6 +1888,21 @@ int main(int argc, char** argv)
 	else
 	{
 		global_path = fs::canonical(fs::path(httpd_doc).make_preferred());
+	}
+
+	// Git LFS 存储目录.
+	if (vm.count("lfs-storage-dir"))
+	{
+		global_lfs_storage_dir = fs::path(httpd_lfs_storage_dir).make_preferred();
+		boost::system::error_code lfs_ec;
+		fs::create_directories(global_lfs_storage_dir, lfs_ec);
+		if (lfs_ec)
+		{
+			std::cerr << "Failed to create LFS storage directory: "
+				<< global_lfs_storage_dir << ", err: " << lfs_ec.message() << "\n";
+			return EXIT_FAILURE;
+		}
+		std::cout << "Git LFS storage directory: " << global_lfs_storage_dir << "\n";
 	}
 
 	ctx.run();
