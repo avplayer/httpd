@@ -18,9 +18,12 @@
 - **MIME 类型** — 内置常用文件扩展名的 MIME 映射
 - **IPv4/IPv6 双栈** — 默认监听 `[::0]:80`，同时支持 IPv4 和 IPv6
 - **Keep-Alive** — 支持 HTTP/1.1 持久连接
+- **Git LFS 支持** — 通过 `--lfs-storage-dir` 启用 Git LFS Batch API 和文件传输端点（基于 Git LFS 协议 v1 批量 API）
+- **索引文件** — 目录访问时自动寻找并返回 `index.html` / `index.htm`
+- **100-continue** — 支持 `Expect: 100-continue` 请求头
 - **跨平台** — 支持 Linux、macOS、Windows
 - **io_uring** — Linux 平台可选启用 `io_uring` 支持（`ENABLE_USE_IO_URING`）
-- **Docker** — 提供多阶段构建 Dockerfile
+- **Docker** — 提供多阶段构建 Dockerfile（Alpine 静态链接 / Ubuntu）
 - **systemd** — 提供 systemd 服务文件，以及支持输出 systemd 日志
 
 ---
@@ -58,6 +61,7 @@ cmake -S . -B build
 cmake --build build --config Release
 ```
 
+
 ### Docker
 
 ```bash
@@ -72,7 +76,7 @@ docker build . -t httpd:v1
 
 ## 使用方法
 
-```
+```text
 httpd [选项]
 ```
 
@@ -84,8 +88,9 @@ httpd [选项]
 | `--listen <ip:port>` | `[::0]:80` | 监听地址和端口（支持 IPv4 和 IPv6）。当指定 `--ssl-cert-dir` 时，该地址提供 HTTPS 服务 |
 | `--path <path>` | 标准输入 | 文档根目录、单个文件路径；设为 `-` 或留空则启用标准输入管道模式 |
 | `--ssl-cert-dir <dir>` | 未启用 | SSL 证书目录。指定后启用 HTTPS，自动扫描目录下的证书和密钥文件 |
+| `--lfs-storage-dir <dir>` | 未启用 | Git LFS 存储目录。指定后启用 Git LFS Batch API 和文件传输端点 |
 
-> 由于启用了 `allow_long_disguise`，`--listen` 也可写作 `-listen` 或 `-l`，`--path` 也可写作 `-p`。
+> 由于启用了 `allow_long_disguise`，`--listen` 也可写作 `-listen`，`--path` 也可写作 `-p`。
 
 ---
 
@@ -166,6 +171,33 @@ rtl_fm -f 93.0M -M wbfm -s 200000 -r 44100 - \
   | ffmpeg -f s16le -ac 1 -i pipe:0 -ab 128k -f mpegts - \
   | httpd --listen 0.0.0.0:8080 --path -
 ```
+
+### Git LFS 服务
+
+指定 `--lfs-storage-dir` 参数启用内置 Git LFS 服务器，基于 [Git LFS Batch API](https://github.com/git-lfs/git-lfs/blob/main/docs/api/batch.md) 协议：
+
+```bash
+# 启动 Git LFS 服务（存储目录为 /srv/lfs-objects）
+httpd --listen 0.0.0.0:8080 --lfs-storage-dir /srv/lfs-objects --path /var/www/html
+```
+
+在 Git 仓库中配置 LFS 端点：
+
+```bash
+# 配置 LFS 端点指向 httpd 服务
+git config lfs.url http://127.0.0.1:8080
+# 或使用 .lfsconfig 文件
+echo '[lfs]
+url = http://127.0.0.1:8080' > .lfsconfig
+```
+
+支持以下 Git LFS 操作：
+
+- **上传** — `PUT /files/<oid>` 存储 LFS 对象
+- **下载** — `GET /files/<oid>` 获取 LFS 对象
+- **批处理查询** — `POST /objects/batch` 批处理请求
+
+> **注意**：LFS 服务仅支持 Basic 传输模式，存储的对象以 SHA-256 OID 为文件名保存在指定目录中。
 
 ### 访问服务
 
