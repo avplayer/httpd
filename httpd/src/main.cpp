@@ -175,8 +175,26 @@ inline std::string extract_domain_from_cert(const fs::path& cert_file)
     return domain;
 }
 
+// Count how many certificates are in a PEM file (chain depth).
+inline int count_cert_chain_depth(const fs::path& file)
+{
+    BIO* bio = BIO_new_file(file.string().c_str(), "r");
+    if (!bio)
+        return 0;
+
+    int count = 0;
+    X509* cert = nullptr;
+    while ((cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr)) != nullptr)
+    {
+        count++;
+        X509_free(cert);
+    }
+    BIO_free(bio);
+    return count;
+}
+
 // Scan certificate directory and discover cert/key pairs.
-// Preference order: fullchain.pem > cert.pem > *.crt > *.pem
+// Preference order: by certificate chain depth (more certs = fuller chain).
 inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
 {
     std::vector<ssl_cert_info> results;
@@ -205,27 +223,19 @@ inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
         }
     }
 
-    // Priority-ordered cert file prefixes.
+    // Score cert files by actual certificate chain depth.
     auto is_cert_file = [](const fs::path& p) -> int
     {
         auto ext = p.extension().string();
-        auto stem = p.stem().string();
 
-        // Prefer fullchain.pem.
-        if (stem == "fullchain" && ext == ".pem")
-            return 100;
-        if (stem == "cert" && ext == ".pem")
-            return 80;
-        if (ext == ".crt")
-            return 60;
-        if (ext == ".cert")
-            return 50;
-        if (ext == ".pem")
-        {
-            // Check if it looks like a certificate (has BEGIN CERTIFICATE).
-            return 40;
-        }
-        return 0;
+        // Must have a certificate-like extension.
+        if (ext != ".pem" && ext != ".crt" && ext != ".cert")
+            return 0;
+
+        // Score by actual certificate chain depth: more certificates
+        // in the PEM file means a fuller chain, which should be preferred.
+        auto depth = count_cert_chain_depth(p);
+        return depth;
     };
 
     auto is_key_file = [](const fs::path& p) -> int
@@ -255,7 +265,7 @@ inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
         if (cert_score > 0)
         {
             auto stem = p.stem().string();
-            // For "fullchain.pem" etc., use a special key.
+            // Well-known cert filenames match with any key in the default pool.
             if (stem == "fullchain" || stem == "cert")
                 cert_candidates["_default_"].push_back(p);
             else
