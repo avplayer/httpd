@@ -223,9 +223,14 @@ namespace xlogger {
 #	define DEFAULT_LOG_MAXFILE_SIZE (-1)
 #endif // DEFAULT_LOG_MAXFILE_SIZE
 
+#ifdef NDEBUG
+#	define LOG2CONSOLE (false)
+#else
+#	define LOG2CONSOLE (true)
+#endif
 
 inline bool global_logging___ = true;
-inline bool global_console_logging___ = true;
+inline bool global_console_logging___ = LOG2CONSOLE;
 inline bool global_write_logging___ = true;
 inline int64_t global_logfile_size___ = DEFAULT_LOG_MAXFILE_SIZE;
 
