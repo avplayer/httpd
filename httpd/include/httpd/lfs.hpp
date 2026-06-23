@@ -51,6 +51,7 @@ namespace fs = std::filesystem;
 // 使用与主程序相同的 executor 类型.
 using executor_type = net::io_context::executor_type;
 using awaitable_void = net::awaitable<void, executor_type>;
+using awaitable_string = net::awaitable<std::string, executor_type>;
 
 // LFS 存储根目录，默认空表示 LFS 功能未启用.
 inline fs::path global_lfs_storage_dir;
@@ -207,6 +208,69 @@ inline std::string sha256_to_hex_string(EVP_MD_CTX* ctx)
 // LFS 批处理请求处理 (POST /objects/batch)
 //////////////////////////////////////////////////////////////////////////
 
+// Result of parsing an LFS batch request.
+struct lfs_batch_request_info
+{
+    json::value req_json;
+    std::string operation;
+    bool valid{false};
+};
+
+// Parse the LFS batch request body (pure parsing, no I/O).
+inline lfs_batch_request_info parse_lfs_batch_request(
+    http::request<http::dynamic_body>& req,
+    int64_t connection_id)
+{
+    lfs_batch_request_info result;
+
+    std::string body_str = beast::buffers_to_string(req.body().data());
+
+    try
+    {
+        result.req_json = json::parse(body_str);
+    }
+    catch (const std::exception& e)
+    {
+        XLOG_ERR << "LFS Session: " << connection_id
+            << ", invalid JSON: " << e.what();
+        return result;
+    }
+
+    if (result.req_json.kind() == json::kind::object)
+    {
+        auto op_it = result.req_json.get_object().find("operation");
+        if (op_it != result.req_json.get_object().end() &&
+            op_it->value().kind() == json::kind::string)
+        {
+            result.operation = op_it->value().get_string().c_str();
+        }
+    }
+
+    if (result.operation != "upload" && result.operation != "download")
+    {
+        XLOG_ERR << "LFS Session: " << connection_id
+            << ", invalid operation: " << result.operation;
+        return result;
+    }
+
+    result.valid = true;
+    return result;
+}
+
+// Build the server URL from the Host header and SSL flag.
+inline std::string build_lfs_server_url(
+    http::request<http::dynamic_body>& req,
+    bool is_ssl)
+{
+    std::string url = is_ssl ? "https://" : "http://";
+    auto host_it = req.find(http::field::host);
+    if (host_it != req.end())
+        url += host_it->value();
+    else
+        url += "localhost:8080";
+    return url;
+}
+
 template <typename Stream>
 inline awaitable_void lfs_batch_session(
     Stream& stream,
@@ -218,68 +282,25 @@ inline awaitable_void lfs_batch_session(
 
     XLOG_DBG << "LFS Session: " << connection_id << ", batch request";
 
-    // 读取请求体并解析 JSON.
-    std::string body_str = beast::buffers_to_string(req.body().data());
-    json::value req_json;
-    bool parse_ok = false;
-    try
+    auto info = parse_lfs_batch_request(req, connection_id);
+    if (!info.valid)
     {
-        req_json = json::parse(body_str);
-        parse_ok = true;
-    }
-    catch (const std::exception& e)
-    {
-        XLOG_ERR << "LFS Session: " << connection_id
-            << ", invalid JSON: " << e.what();
-    }
-
-    if (!parse_ok)
-    {
-        co_await lfs_error_response(
-            stream, req,
-            http::status::bad_request,
-            R"({"message":"Invalid JSON"})");
+        std::string err_msg = info.operation.empty()
+            ? R"({"message":"Invalid JSON"})"
+            : R"({"message":"Invalid operation"})";
+        co_await lfs_error_response(stream, req,
+            http::status::bad_request, err_msg);
         co_return;
     }
 
-    // 提取操作类型.
-    std::string operation;
-    if (req_json.kind() == json::kind::object)
-    {
-        auto op_it = req_json.get_object().find("operation");
-        if (op_it != req_json.get_object().end() &&
-            op_it->value().kind() == json::kind::string)
-        {
-            operation = op_it->value().get_string().c_str();
-        }
-    }
-
-    if (operation != "upload" && operation != "download")
-    {
-        co_await lfs_error_response(
-            stream, req,
-            http::status::bad_request,
-            R"({"message":"Invalid operation"})");
-        co_return;
-    }
-
-    // 构建响应.
-    // 根据当前连接是否使用 SSL 来决定协议前缀.
-    std::string server_url = is_ssl ? "https://" : "http://";
-    auto host_it = req.find(http::field::host);
-    if (host_it != req.end())
-        server_url += host_it->value();
-    else
-        server_url += "localhost:8080";
-
+    auto server_url = build_lfs_server_url(req, is_ssl);
     auto resp_json = lfs_detail::build_batch_response(
-        req_json, operation, global_lfs_storage_dir, server_url);
+        info.req_json, info.operation, global_lfs_storage_dir, server_url);
 
     std::string resp_body = json::serialize(resp_json);
 
     http::response<http::string_body> res{
-        http::status::ok,
-        req.version()
+        http::status::ok, req.version()
     };
     res.set(http::field::server, "httpd/1.0");
     res.set(http::field::content_type, "application/vnd.git-lfs+json");
@@ -291,10 +312,8 @@ inline awaitable_void lfs_batch_session(
     co_await http::async_write(stream, res, ioc_awaitable[ec]);
 
     if (ec)
-    {
         XLOG_ERR << "LFS Session: " << connection_id
             << ", batch write error: " << ec.message();
-    }
 
     co_return;
 }
@@ -303,69 +322,26 @@ inline awaitable_void lfs_batch_session(
 // LFS 文件上传处理 (PUT /files/{oid}) — 流式读取 body，避免内存暴涨
 //////////////////////////////////////////////////////////////////////////
 
+// Stream the request body into a file while computing SHA-256.
+// Returns the computed hex OID, or an empty string on failure.
+// On error, the partially written file is removed and an error is sent.
 template <typename Stream>
-inline awaitable_void lfs_file_upload_session(
+inline awaitable_string stream_upload_to_file(
     Stream& stream,
     beast::flat_buffer& buffer,
     http::request_parser<http::request<http::dynamic_body>::body_type>& parser,
     int64_t connection_id,
-    std::string_view oid)
+    const fs::path& file_path,
+    std::ofstream& file_stream,
+    EVP_MD_CTX* md_ctx)
 {
     boost::system::error_code ec;
-    auto& req = parser.get();
 
-    XLOG_DBG << "LFS Session: " << connection_id
-        << ", file upload (streaming), oid: " << oid;
-
-    // 校验 OID.
-    if (!lfs_detail::is_valid_oid(oid))
-    {
-        co_await lfs_error_response(
-            stream, req,
-            http::status::bad_request,
-            R"({"message":"Invalid OID"})");
-        co_return;
-    }
-
-    fs::path file_path = global_lfs_storage_dir / std::string(oid);
-
-    XLOG_DBG << "LFS Session: " << connection_id
-        << ", uploading file: " << file_path;
-
-    // 确保存储目录存在.
-    fs::create_directories(global_lfs_storage_dir, ec);
-
-    std::ofstream file_stream(
-        file_path.string(),
-        std::ios_base::binary | std::ios_base::trunc);
-
-    if (!file_stream.is_open())
-    {
-        co_await lfs_error_response(
-            stream, req,
-            http::status::internal_server_error,
-            R"({"message":"Internal Server Error"})");
-        co_return;
-    }
-
-    // 初始化 SHA-256 哈希计算上下文.
-    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> md_ctx(
-        EVP_MD_CTX_new(), EVP_MD_CTX_free);
-    if (!md_ctx || EVP_DigestInit_ex(md_ctx.get(), EVP_sha256(), nullptr) != 1)
-    {
-        co_await lfs_error_response(
-            stream, req,
-            http::status::internal_server_error,
-            R"({"message":"Internal Server Error"})");
-        co_return;
-    }
-
-    // 循环读取请求体，写入文件并计算哈希.
     while (!parser.is_done())
     {
         co_await http::async_read_some(stream, buffer, parser, ioc_awaitable[ec]);
 
-        auto& body = req.body();
+        auto& body = parser.get().body();
         auto bodysize = body.size();
 
         if (bodysize > 0)
@@ -381,22 +357,17 @@ inline awaitable_void lfs_file_upload_session(
                 {
                     XLOG_ERR << "LFS Session: " << connection_id
                         << ", file write failed";
-
                     file_stream.close();
                     boost::system::error_code remove_ec;
                     fs::remove(file_path, remove_ec);
-
-                    co_await lfs_error_response(
-                        stream, req,
-                        http::status::internal_server_error,
-                        R"({"message":"Upload Failed"})");
-                    co_return;
+                    co_return "";
                 }
 
-                EVP_DigestUpdate(md_ctx.get(), bufptr, bufsize);
+                EVP_DigestUpdate(md_ctx, bufptr, bufsize);
             }
 
             body.consume(bodysize);
+            continue;
         }
 
         if (ec == http::error::need_buffer)
@@ -408,51 +379,100 @@ inline awaitable_void lfs_file_upload_session(
         {
             XLOG_ERR << "LFS Session: " << connection_id
                 << ", upload read error: " << ec.message();
-
             file_stream.close();
             boost::system::error_code remove_ec;
             fs::remove(file_path, remove_ec);
-
-            co_await lfs_error_response(
-                stream, req,
-                http::status::internal_server_error,
-                R"({"message":"Upload Failed"})");
-            co_return;
+            co_return "";
         }
         break;
     }
 
-    // 完成哈希计算并转换为十六进制字符串.
-    std::string computed_oid = sha256_to_hex_string(md_ctx.get());
+    co_return sha256_to_hex_string(md_ctx);
+}
 
-    // 校验哈希是否与请求中的 OID 一致.
-    if (computed_oid != oid)
+template <typename Stream>
+inline awaitable_void lfs_file_upload_session(
+    Stream& stream,
+    beast::flat_buffer& buffer,
+    http::request_parser<http::request<http::dynamic_body>::body_type>& parser,
+    int64_t connection_id,
+    std::string_view oid)
+{
+    auto& req = parser.get();
+
+    XLOG_DBG << "LFS Session: " << connection_id
+        << ", file upload (streaming), oid: " << oid;
+
+    if (!lfs_detail::is_valid_oid(oid))
+    {
+        co_await lfs_error_response(stream, req,
+            http::status::bad_request, R"({"message":"Invalid OID"})");
+        co_return;
+    }
+
+    fs::path file_path = global_lfs_storage_dir / std::string(oid);
+
+    XLOG_DBG << "LFS Session: " << connection_id
+        << ", uploading file: " << file_path;
+
+    boost::system::error_code ec;
+    fs::create_directories(global_lfs_storage_dir, ec);
+
+    std::ofstream file_stream(
+        file_path.string(),
+        std::ios_base::binary | std::ios_base::trunc);
+
+    if (!file_stream.is_open())
+    {
+        co_await lfs_error_response(stream, req,
+            http::status::internal_server_error,
+            R"({"message":"Internal Server Error"})");
+        co_return;
+    }
+
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> md_ctx(
+        EVP_MD_CTX_new(), EVP_MD_CTX_free);
+    if (!md_ctx || EVP_DigestInit_ex(md_ctx.get(), EVP_sha256(), nullptr) != 1)
     {
         file_stream.close();
-        boost::system::error_code remove_ec;
-        fs::remove(file_path, remove_ec);
-        if (remove_ec)
-        {
-            XLOG_ERR << "LFS Session: " << connection_id
-                << ", failed to remove mismatched file: " << remove_ec.message();
-        }
+        co_await lfs_error_response(stream, req,
+            http::status::internal_server_error,
+            R"({"message":"Internal Server Error"})");
+        co_return;
+    }
 
-        XLOG_ERR << "LFS Session: " << connection_id
-            << ", SHA-256 mismatch: expected " << oid
-            << ", computed " << computed_oid;
+    std::string computed_oid = co_await stream_upload_to_file(
+        stream, buffer, parser, connection_id,
+        file_path, file_stream, md_ctx.get());
 
-        co_await lfs_error_response(
-            stream, req,
-            http::status::bad_request,
-            R"({"message":"SHA256 mismatch: OID does not match content"})");
+    if (computed_oid.empty())
+    {
+        // Error already sent by stream_upload_to_file.
         co_return;
     }
 
     file_stream.close();
 
+    if (computed_oid != oid)
+    {
+        boost::system::error_code remove_ec;
+        fs::remove(file_path, remove_ec);
+        if (remove_ec)
+            XLOG_ERR << "LFS Session: " << connection_id
+                << ", failed to remove mismatched file: " << remove_ec.message();
+
+        XLOG_ERR << "LFS Session: " << connection_id
+            << ", SHA-256 mismatch: expected " << oid
+            << ", computed " << computed_oid;
+
+        co_await lfs_error_response(stream, req,
+            http::status::bad_request,
+            R"({"message":"SHA256 mismatch: OID does not match content"})");
+        co_return;
+    }
+
     http::response<http::string_body> res{
-        http::status::ok,
-        req.version()
+        http::status::ok, req.version()
     };
     res.set(http::field::server, "httpd/1.0");
     res.set(http::field::content_type, "application/vnd.git-lfs+json");
@@ -462,10 +482,8 @@ inline awaitable_void lfs_file_upload_session(
     co_await http::async_write(stream, res, ioc_awaitable[ec]);
 
     if (ec)
-    {
         XLOG_ERR << "LFS Session: " << connection_id
             << ", upload write response error: " << ec.message();
-    }
 
     co_return;
 }
@@ -474,65 +492,15 @@ inline awaitable_void lfs_file_upload_session(
 // LFS 文件下载处理 (GET /files/{oid})
 //////////////////////////////////////////////////////////////////////////
 
+// Stream a file to the client using buffer_body serialization.
 template <typename Stream>
-inline awaitable_void lfs_file_download_session(
+inline awaitable_void stream_file_download(
     Stream& stream,
-    http::request<http::dynamic_body>& req,
     int64_t connection_id,
-    std::string_view oid)
+    http::response<http::buffer_body>& res,
+    std::ifstream& file_stream)
 {
     boost::system::error_code ec;
-
-    XLOG_DBG << "LFS Session: " << connection_id
-        << ", downloading file, oid: " << oid;
-
-    // 校验 OID.
-    if (!lfs_detail::is_valid_oid(oid))
-    {
-        co_await lfs_error_response(
-            stream, req,
-            http::status::bad_request,
-            R"({"message":"Invalid OID"})");
-        co_return;
-    }
-
-    fs::path file_path = global_lfs_storage_dir / std::string(oid);
-
-    // 检查文件是否存在.
-    boost::system::error_code stat_ec;
-    auto file_size = fs::file_size(file_path, stat_ec);
-
-    if (stat_ec || !fs::exists(file_path, stat_ec))
-    {
-        co_await lfs_error_response(
-            stream, req,
-            http::status::not_found,
-            R"({"message":"File Not Found"})");
-        co_return;
-    }
-
-    std::ifstream file_stream(
-        file_path.string(),
-        std::ios_base::binary | std::ios_base::in);
-
-    if (!file_stream.is_open())
-    {
-        co_await lfs_error_response(
-            stream, req,
-            http::status::internal_server_error,
-            R"({"message":"Internal Server Error"})");
-        co_return;
-    }
-
-    // 使用 buffer_body 发送文件内容.
-    http::response<http::buffer_body> res{
-        http::status::ok,
-        req.version()
-    };
-    res.set(http::field::server, "httpd/1.0");
-    res.set(http::field::content_type, "application/octet-stream");
-    res.keep_alive(req.keep_alive());
-    res.content_length(file_size);
 
     http::response_serializer<http::buffer_body, http::fields> sr(res);
 
@@ -581,6 +549,60 @@ inline awaitable_void lfs_file_download_session(
             co_return;
         }
     } while (!sr.is_done());
+
+    co_return;
+}
+
+template <typename Stream>
+inline awaitable_void lfs_file_download_session(
+    Stream& stream,
+    http::request<http::dynamic_body>& req,
+    int64_t connection_id,
+    std::string_view oid)
+{
+    XLOG_DBG << "LFS Session: " << connection_id
+        << ", downloading file, oid: " << oid;
+
+    if (!lfs_detail::is_valid_oid(oid))
+    {
+        co_await lfs_error_response(stream, req,
+            http::status::bad_request, R"({"message":"Invalid OID"})");
+        co_return;
+    }
+
+    fs::path file_path = global_lfs_storage_dir / std::string(oid);
+
+    boost::system::error_code stat_ec;
+    auto file_size = fs::file_size(file_path, stat_ec);
+
+    if (stat_ec || !fs::exists(file_path, stat_ec))
+    {
+        co_await lfs_error_response(stream, req,
+            http::status::not_found, R"({"message":"File Not Found"})");
+        co_return;
+    }
+
+    std::ifstream file_stream(
+        file_path.string(),
+        std::ios_base::binary | std::ios_base::in);
+
+    if (!file_stream.is_open())
+    {
+        co_await lfs_error_response(stream, req,
+            http::status::internal_server_error,
+            R"({"message":"Internal Server Error"})");
+        co_return;
+    }
+
+    http::response<http::buffer_body> res{
+        http::status::ok, req.version()
+    };
+    res.set(http::field::server, "httpd/1.0");
+    res.set(http::field::content_type, "application/octet-stream");
+    res.keep_alive(req.keep_alive());
+    res.content_length(file_size);
+
+    co_await stream_file_download(stream, connection_id, res, file_stream);
 
     co_return;
 }

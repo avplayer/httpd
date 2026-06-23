@@ -98,6 +98,7 @@ using steady_timer = net::basic_waitable_timer<
 	net::wait_traits<std::chrono::steady_clock>, executor_type>;
 
 using awaitable_void = net::awaitable<void, executor_type>;
+using awaitable_string = net::awaitable<std::string, executor_type>;
 
 // SSL stream type wrapping tcp_stream.
 using ssl_stream = ssl::stream<tcp_stream>;
@@ -211,12 +212,50 @@ inline int check_key_file(const fs::path& file)
     return 100;
 }
 
-// Scan certificate directory and discover cert/key pairs.
-// Preference order: by certificate chain depth (more certs = fuller chain).
-inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
+// Score a file as a certificate candidate by extension and chain depth.
+// Returns 0 if not a certificate, or the chain depth (>0) as the score.
+inline int score_cert_file(const fs::path& p)
 {
-    std::vector<ssl_cert_info> results;
+    auto ext = p.extension().string();
+    if (ext != ".pem" && ext != ".crt" && ext != ".cert")
+        return 0;
+    return count_cert_chain_depth(p);
+}
 
+// Score a file as a private key candidate by extension and content.
+// Returns 0 if not a key, or 100 if it is a valid private key.
+inline int score_key_file(const fs::path& p)
+{
+    auto ext = p.extension().string();
+    if (ext != ".pem" && ext != ".key")
+        return 0;
+    return check_key_file(p);
+}
+
+// Extract the common prefix from a stem (before first '-' or '_').
+// Well-known names (fullchain, cert, privkey, key) are mapped to "_default_".
+inline std::string extract_cert_prefix(const std::string& stem, bool is_cert)
+{
+    static const std::set<std::string> default_certs = {"fullchain", "cert"};
+    static const std::set<std::string> default_keys  = {"privkey", "key"};
+
+    if ((is_cert && default_certs.count(stem)) ||
+        (!is_cert && default_keys.count(stem)))
+        return "_default_";
+
+    auto sep = stem.find_first_of("-_");
+    if (sep != std::string::npos)
+        return stem.substr(0, sep);
+    return stem;
+}
+
+// Collect files from cert_dir and partition into cert/key candidate maps by prefix.
+inline void collect_certificate_files(
+    const fs::path& cert_dir,
+    std::map<std::string, std::vector<fs::path>>& cert_candidates,
+    std::map<std::string, std::vector<fs::path>>& key_candidates,
+    std::vector<fs::path>& all_files)
+{
     boost::system::error_code ec;
     fs::directory_iterator end;
     fs::directory_iterator it(cert_dir, ec);
@@ -224,176 +263,130 @@ inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
     {
         XLOG_ERR << "Cannot open cert directory: "
             << cert_dir << ", err: " << ec.message();
-        return results;
+        return;
     }
-
-    // Collect all files grouped by stem.
-    std::map<std::string, std::vector<fs::path>> by_stem;
-    std::vector<fs::path> all_files;
 
     for (; it != end; it++)
     {
-        if (fs::is_regular_file(it->status()))
-        {
-            auto p = it->path();
-            all_files.push_back(p);
-            by_stem[p.stem().string()].push_back(p);
-        }
-    }
+        if (!fs::is_regular_file(it->status()))
+            continue;
 
-    // Score cert files by actual certificate chain depth.
-    auto is_cert_file = [](const fs::path& p) -> int
-    {
-        auto ext = p.extension().string();
+        auto p = it->path();
+        all_files.push_back(p);
 
-        // Must have a certificate-like extension.
-        if (ext != ".pem" && ext != ".crt" && ext != ".cert")
-            return 0;
-
-        // Score by actual certificate chain depth: more certificates
-        // in the PEM file means a fuller chain, which should be preferred.
-        auto depth = count_cert_chain_depth(p);
-        return depth;
-    };
-
-    // Score key files by actual content (must be a valid private key).
-    auto is_key_file = [](const fs::path& p) -> int
-    {
-        auto ext = p.extension().string();
-
-        // Must have a key-like extension.
-        if (ext != ".pem" && ext != ".key")
-            return 0;
-
-        // Verify it's a real private key by parsing the file content.
-        auto score = check_key_file(p);
-        return score;
-    };
-
-    // Strategy 1: Look for well-known cert/key pairs by stem matching.
-    // Group files by common prefix (before first '-' or '_').
-    std::map<std::string, std::vector<fs::path>> cert_candidates;
-    std::map<std::string, std::vector<fs::path>> key_candidates;
-
-    for (const auto& p : all_files)
-    {
-        int cert_score = is_cert_file(p);
-        int key_score = is_key_file(p);
+        int cert_score = score_cert_file(p);
+        int key_score  = score_key_file(p);
 
         if (cert_score > 0)
         {
             auto stem = p.stem().string();
-            // Well-known cert filenames match with any key in the default pool.
-            if (stem == "fullchain" || stem == "cert")
-                cert_candidates["_default_"].push_back(p);
-            else
-            {
-                // Extract prefix before first '-', '_', or '.' (excluding ext).
-                auto prefix = stem;
-                auto sep = prefix.find_first_of("-_");
-                if (sep != std::string::npos)
-                    prefix = prefix.substr(0, sep);
-                cert_candidates[prefix].push_back(p);
-            }
+            cert_candidates[extract_cert_prefix(stem, true)].push_back(p);
         }
-
         if (key_score > 0)
         {
             auto stem = p.stem().string();
-            if (stem == "privkey" || stem == "key")
-                key_candidates["_default_"].push_back(p);
-            else
-            {
-                auto prefix = stem;
-                auto sep = prefix.find_first_of("-_");
-                if (sep != std::string::npos)
-                    prefix = prefix.substr(0, sep);
-                key_candidates[prefix].push_back(p);
-            }
+            key_candidates[extract_cert_prefix(stem, false)].push_back(p);
         }
     }
+}
 
-    // Try to match certs with keys by same prefix.
-    // For "_default_", match fullchain/cert with privkey/key.
+// Match certificate files with key files by common prefix.
+// Falls back to the default key pool when a specific prefix has no key.
+inline void match_certs_with_keys(
+    std::map<std::string, std::vector<fs::path>>& cert_candidates,
+    std::map<std::string, std::vector<fs::path>>& key_candidates,
+    std::vector<ssl_cert_info>& results)
+{
     for (auto& [prefix, certs] : cert_candidates)
     {
         if (certs.empty())
             continue;
 
-        // Sort certs by score descending.
+        // Pick the cert with the deepest chain.
         std::sort(certs.begin(), certs.end(),
-            [&](const fs::path& a, const fs::path& b)
+            [](const fs::path& a, const fs::path& b)
             {
-                return is_cert_file(a) > is_cert_file(b);
+                return score_cert_file(a) > score_cert_file(b);
             });
 
         auto& keys = key_candidates[prefix];
         if (keys.empty() && prefix != "_default_")
-        {
-            // Try default key pool.
             keys = key_candidates["_default_"];
-        }
 
-        if (!keys.empty())
-        {
-            // Sort keys by score descending.
-            std::sort(keys.begin(), keys.end(),
-                [&](const fs::path& a, const fs::path& b)
-                {
-                    return is_key_file(a) > is_key_file(b);
-                });
+        if (keys.empty())
+            continue;
 
-            ssl_cert_info info;
-            info.cert_file = certs.front();
-            info.key_file = keys.front();
-            info.domain = extract_domain_from_cert(info.cert_file);
-            results.push_back(std::move(info));
-        }
-    }
-
-    // If nothing found, try scanning all .pem / .crt files and
-    // check their content to identify cert vs key.
-    if (results.empty())
-    {
-        for (const auto& p : all_files)
-        {
-            auto ext = p.extension().string();
-            if (ext != ".pem" && ext != ".crt" && ext != ".cert")
-                continue;
-
-            // Try to read as cert.
-            auto domain = extract_domain_from_cert(p);
-            if (!domain.empty())
+        // Pick the best key (highest score — all valid keys score 100).
+        std::sort(keys.begin(), keys.end(),
+            [](const fs::path& a, const fs::path& b)
             {
-                // This is a cert file. Look for a matching key.
-                // Try common key names.
-                auto dir = p.parent_path();
-                auto stem = p.stem().string();
-                std::vector<fs::path> possible_keys;
+                return score_key_file(a) > score_key_file(b);
+            });
 
-                auto try_key = [&](const fs::path& kp)
-                {
-                    if (fs::exists(kp))
-                        possible_keys.push_back(kp);
-                };
-
-                try_key(dir / (stem + ".key"));
-                try_key(dir / (stem + "-key.pem"));
-                try_key(dir / (stem + "_key.pem"));
-                try_key(dir / "privkey.pem");
-                try_key(dir / "key.pem");
-
-                if (!possible_keys.empty())
-                {
-                    ssl_cert_info info;
-                    info.cert_file = p;
-                    info.key_file = possible_keys.front();
-                    info.domain = std::move(domain);
-                    results.push_back(std::move(info));
-                }
-            }
-        }
+        ssl_cert_info info;
+        info.cert_file = certs.front();
+        info.key_file  = keys.front();
+        info.domain    = extract_domain_from_cert(info.cert_file);
+        results.push_back(std::move(info));
     }
+}
+
+// Fallback: try every .pem/.crt as a cert and guess the key by common key names.
+inline void fallback_scan_cert_pairs(
+    const std::vector<fs::path>& all_files,
+    std::vector<ssl_cert_info>& results)
+{
+    for (const auto& p : all_files)
+    {
+        auto ext = p.extension().string();
+        if (ext != ".pem" && ext != ".crt" && ext != ".cert")
+            continue;
+
+        auto domain = extract_domain_from_cert(p);
+        if (domain.empty())
+            continue;
+
+        auto dir  = p.parent_path();
+        auto stem = p.stem().string();
+
+        // Try common key naming conventions.
+        auto try_existing = [&](const fs::path& kp)
+        {
+            if (fs::exists(kp))
+            {
+                ssl_cert_info info;
+                info.cert_file = p;
+                info.key_file  = kp;
+                info.domain    = std::move(domain);
+                results.push_back(std::move(info));
+                return true;
+            }
+            return false;
+        };
+
+        if (try_existing(dir / (stem + ".key")))        break;
+        if (try_existing(dir / (stem + "-key.pem")))    break;
+        if (try_existing(dir / (stem + "_key.pem")))    break;
+        if (try_existing(dir / "privkey.pem"))          break;
+        if (try_existing(dir / "key.pem"))              break;
+    }
+}
+
+// Scan certificate directory and discover cert/key pairs.
+// Preference order: by certificate chain depth (more certs = fuller chain).
+inline std::vector<ssl_cert_info> scan_cert_directory(const fs::path& cert_dir)
+{
+    std::map<std::string, std::vector<fs::path>> cert_candidates;
+    std::map<std::string, std::vector<fs::path>> key_candidates;
+    std::vector<fs::path> all_files;
+
+    collect_certificate_files(cert_dir, cert_candidates, key_candidates, all_files);
+
+    std::vector<ssl_cert_info> results;
+    match_certs_with_keys(cert_candidates, key_candidates, results);
+
+    if (results.empty())
+        fallback_scan_cert_pairs(all_files, results);
 
     return results;
 }
@@ -857,6 +850,35 @@ inline std::tuple<std::string, fs::path> file_last_wirte_time(const fs::path& fi
 	return { time_string, unc_path };
 }
 
+// Truncate a display name to at most 50 characters, appending "..&gt;" when cut.
+inline std::wstring truncate_display_name(std::wstring name)
+{
+	if (name.size() > 50)
+	{
+		name.resize(47);
+		name += L"..&gt;";
+	}
+	return name;
+}
+
+// Format a single filesystem entry (dir or file) as an HTML list row.
+inline std::wstring format_list_entry(
+	const fs::path& item,
+	const std::wstring& rpath,
+	const std::wstring& time_string,
+	const std::wstring& size_string)
+{
+	int width = 50 - static_cast<int>(rpath.size());
+	if (width < 0) width = 0;
+
+	return fmt::format(body_fmt,
+		rpath,
+		truncate_display_name(rpath),
+		std::wstring(static_cast<std::size_t>(width), L' '),
+		time_string,
+		size_string);
+}
+
 inline std::vector<std::wstring> format_path_list(const std::set<fs::path>& paths)
 {
 	boost::system::error_code ec;
@@ -869,59 +891,29 @@ inline std::vector<std::wstring> format_path_list(const std::set<fs::path>& path
 		auto [ftime, unc_path] = file_last_wirte_time(item);
 		std::wstring time_string = boost::nowide::widen(ftime);
 
-		std::wstring rpath;
-
 		if (fs::is_directory(item, ec))
 		{
 			auto leaf = boost::nowide::narrow(item.filename().wstring());
-			leaf = leaf + "/";
-			rpath = boost::nowide::widen(leaf);
-			int width = 50 - rpath.size();
-			width = width < 0 ? 0 : width;
-			std::wstring space(width, L' ');
-			auto show_path = rpath;
-			if (show_path.size() > 50) {
-				show_path = show_path.substr(0, 47);
-				show_path += L"..&gt;";
-			}
-			auto str = fmt::format(body_fmt,
-				rpath,
-				show_path,
-				space,
-				time_string,
-				L"-");
+			leaf += "/";
+			auto rpath = boost::nowide::widen(leaf);
 
-			path_list.push_back(str);
+			path_list.push_back(format_list_entry(
+				item, rpath, time_string, L"-"));
 		}
 		else
 		{
-			auto leaf = boost::nowide::narrow(item.filename().wstring());
-			rpath = boost::nowide::widen(leaf);
-			int width = 50 - (int)rpath.size();
-			width = width < 0 ? 0 : width;
-			std::wstring space(width, L' ');
-			std::wstring filesize;
+			auto rpath = boost::nowide::widen(
+				boost::nowide::narrow(item.filename().wstring()));
+
 			if (unc_path.empty())
 				unc_path = item;
-			auto sz = static_cast<float>(fs::file_size(
-				unc_path, ec));
+			auto sz = static_cast<float>(fs::file_size(unc_path, ec));
 			if (ec)
 				sz = 0;
-			filesize = boost::nowide::widen(
-				add_suffix(sz));
-			auto show_path = rpath;
-			if (show_path.size() > 50) {
-				show_path = show_path.substr(0, 47);
-				show_path += L"..&gt;";
-			}
-			auto str = fmt::format(body_fmt,
-				rpath,
-				show_path,
-				space,
-				time_string,
-				filesize);
+			auto filesize = boost::nowide::widen(add_suffix(sz));
 
-			path_list.push_back(str);
+			path_list.push_back(format_list_entry(
+				item, rpath, time_string, filesize));
 		}
 	}
 
@@ -961,6 +953,82 @@ inline std::map<std::string, std::string> parse_query_string(std::string_view qs
 	return params;
 }
 
+// Build an HTML directory listing body from the dirs/files sets and root path.
+inline std::string build_directory_listing_body(
+    const fs::path& dir,
+    const std::set<fs::path>& dirs,
+    const std::set<fs::path>& files)
+{
+    std::vector<std::wstring> path_list = format_path_list(dirs);
+    auto file_list = format_path_list(files);
+    path_list.insert(path_list.end(), file_list.begin(), file_list.end());
+
+    auto current_dir = dir.wstring();
+    auto root_path = boost::replace_first_copy(
+        current_dir, global_path.wstring(), L"");
+
+    std::wstring body = fmt::format(
+        body_fmt, L"../", L"../", L"", L"", L"");
+
+    for (auto& s : path_list)
+        body += s;
+
+    return boost::nowide::narrow(
+        fmt::format(head_fmt, root_path, root_path) + body + tail_fmt);
+}
+
+// Scan a directory into two sorted sets: subdirectories and files.
+inline bool scan_directory_entries(
+    const fs::path& dir,
+    std::set<fs::path>& dirs,
+    std::set<fs::path>& files,
+    boost::system::error_code& ec)
+{
+    fs::directory_iterator end;
+    fs::directory_iterator it(dir, ec);
+    if (ec)
+        return false;
+
+    for (; it != end; it++)
+    {
+        const auto& item = it->path();
+        if (fs::is_directory(item, ec))
+            dirs.insert(item);
+        else
+            files.insert(item);
+    }
+    return true;
+}
+
+// Helper: send a string response with standard headers and serialize it.
+template <typename Stream>
+inline awaitable_void send_string_response(
+    Stream& stream,
+    dynamic_request& req,
+    int64_t connection_id,
+    http::status status,
+    std::string body,
+    const std::string& content_type)
+{
+    boost::system::error_code ec;
+
+    string_response res{status, req.version()};
+    res.set(http::field::server, version_string);
+    res.set(http::field::date, server_date_string());
+    res.set(http::field::content_type, content_type);
+    res.keep_alive(req.keep_alive());
+    res.content_length(body.size());
+    res.body() = std::move(body);
+    res.prepare_payload();
+
+    http::serializer<false, string_body, http::fields> sr(res);
+    co_await http::async_write(stream, sr, ioc_awaitable[ec]);
+
+    if (ec)
+        XLOG_ERR << "Session: " << connection_id << ", err: " << ec.message();
+    co_return;
+}
+
 template <typename Stream>
 inline awaitable_void dir_session(
 	Stream& stream,
@@ -968,107 +1036,76 @@ inline awaitable_void dir_session(
 	int64_t connection_id,
 	fs::path dir)
 {
-	XLOG_DBG << "Session: "
-		<< connection_id
-		<< ", path: "
-		<< dir;
+	XLOG_DBG << "Session: " << connection_id << ", path: " << dir;
 
 	boost::system::error_code ec;
 
-	fs::directory_iterator end;
-	fs::directory_iterator it(dir, ec);
-
-	if (ec)
-	{
-		XLOG_WARN << "Session: "
-			<< connection_id
-			<< ", path: "
-			<< dir
-			<< ", err: "
-			<< ec.message();
-
-		co_await error_session(
-			stream,
-			req,
-			connection_id,
-			http::status::internal_server_error,
-			"Internal server error");
-
-		co_return;
-	}
-
-	// 遍历目录, 生成目录列表和文件列表.
 	std::set<fs::path> dirs;
 	std::set<fs::path> files;
 
-	for (; it != end; it++)
+	if (!scan_directory_entries(dir, dirs, files, ec))
 	{
-		const auto& item = it->path();
+		XLOG_WARN << "Session: " << connection_id
+			<< ", path: " << dir << ", err: " << ec.message();
 
-		if (fs::is_directory(item, ec))
-			dirs.insert(item);
-		else
-			files.insert(item);
+		co_await error_session(stream, req, connection_id,
+			http::status::internal_server_error, "Internal server error");
+		co_return;
 	}
 
-	std::vector<std::wstring> path_list;
+	auto body = build_directory_listing_body(dir, dirs, files);
 
-	path_list = format_path_list(dirs);
-	auto file_list = format_path_list(files);
-	path_list.insert(path_list.end(), file_list.begin(), file_list.end());
-
-	auto current_dir = dir.wstring();
-	auto root_path = boost::replace_first_copy(current_dir, global_path.wstring(), L"");
-
-	std::wstring head =
-		fmt::format(
-			head_fmt,
-			root_path,
-			root_path);
-
-	std::wstring body =
-		fmt::format(
-			body_fmt,
-			L"../",
-			L"../",
-			L"",
-			L"",
-			L"");
-
-	for (auto& s : path_list)
-		body += s;
-	body = head + body + tail_fmt;
-
-	string_response res{
-		http::status::ok,
-		req.version()
-	};
-
-	res.set(http::field::server, version_string);
-	res.set(http::field::date, server_date_string());
-	res.set(http::field::content_type, "text/html; charset=UTF-8");
-	res.keep_alive(req.keep_alive());
-	res.content_length(body.size());
-	res.body() = boost::nowide::narrow(body);
-	res.prepare_payload();
-
-	http::serializer<
-		false,
-		string_body,
-		http::fields> sr(res);
-
-	co_await http::async_write(
-		stream,
-		sr,
-		ioc_awaitable[ec]);
-
-	if (ec)
-		XLOG_ERR << "Session: "
-			<< connection_id
-			<< ", err: "
-			<< ec.message();
+	co_await send_string_response(
+		stream, req, connection_id,
+		http::status::ok, std::move(body),
+		"text/html; charset=UTF-8");
 
 	co_return;
+}
+
+// Build a JSON array string from directory contents.
+inline std::string build_directory_listing_json(
+    const fs::path& dir,
+    boost::system::error_code& ec)
+{
+    fs::directory_iterator end;
+    fs::directory_iterator it(dir, ec);
+    if (ec)
+        return {};
+
+    std::string json = "[\n";
+    bool first = true;
+
+    for (; it != end; it++)
+    {
+        const auto& item = it->path();
+
+        if (!first)
+            json += ",\n";
+        first = false;
+
+        auto filename = boost::nowide::narrow(item.filename().wstring());
+        auto [ftime, unc_path] = file_last_wirte_time(item);
+
+        if (fs::is_directory(item, ec))
+        {
+            json += fmt::format(
+                R"(  {{"last_write_time": "{}", "filename": "{}", "is_dir": true}})",
+                ftime, filename);
+        }
+        else
+        {
+            auto sz = static_cast<float>(fs::file_size(item, ec));
+            if (ec)
+                sz = 0;
+            json += fmt::format(
+                R"(  {{"last_write_time": "{}", "filename": "{}", "is_dir": false, "filesize": {}}})",
+                ftime, filename, static_cast<int64_t>(sz));
+        }
+    }
+
+    json += "\n]\n";
+    return json;
 }
 
 template <typename Stream>
@@ -1085,92 +1122,154 @@ inline awaitable_void dir_session_json(
 		<< ", json listing";
 
 	boost::system::error_code ec;
-
-	fs::directory_iterator end;
-	fs::directory_iterator it(dir, ec);
+	auto json = build_directory_listing_json(dir, ec);
 
 	if (ec)
 	{
-		XLOG_WARN << "Session: "
-			<< connection_id
-			<< ", path: "
-			<< dir
-			<< ", err: "
-			<< ec.message();
+		XLOG_WARN << "Session: " << connection_id
+			<< ", path: " << dir << ", err: " << ec.message();
 
-		co_await error_session(
-			stream,
-			req,
-			connection_id,
-			http::status::internal_server_error,
-			"Internal server error");
-
+		co_await error_session(stream, req, connection_id,
+			http::status::internal_server_error, "Internal server error");
 		co_return;
 	}
 
-	std::string json = "[\n";
-	bool first = true;
-
-	for (; it != end; it++)
-	{
-		const auto& item = it->path();
-
-		if (!first)
-			json += ",\n";
-		first = false;
-
-		auto filename = boost::nowide::narrow(item.filename().wstring());
-		auto [ftime, unc_path] = file_last_wirte_time(item);
-
-		if (fs::is_directory(item, ec))
-		{
-			json += fmt::format(
-				R"(  {{"last_write_time": "{}", "filename": "{}", "is_dir": true}})",
-				ftime, filename);
-		}
-		else
-		{
-			auto sz = static_cast<float>(fs::file_size(item, ec));
-			if (ec)
-				sz = 0;
-			json += fmt::format(
-				R"(  {{"last_write_time": "{}", "filename": "{}", "is_dir": false, "filesize": {}}})",
-				ftime, filename, static_cast<int64_t>(sz));
-		}
-	}
-
-	json += "\n]\n";
-
-	string_response res{
-		http::status::ok,
-		req.version()
-	};
-
-	res.set(http::field::server, version_string);
-	res.set(http::field::date, server_date_string());
-	res.set(http::field::content_type, "application/json; charset=utf-8");
-	res.keep_alive(req.keep_alive());
-	res.content_length(json.size());
-	res.body() = std::move(json);
-	res.prepare_payload();
-
-	http::serializer<
-		false,
-		string_body,
-		http::fields> sr(res);
-
-	co_await http::async_write(
-		stream,
-		sr,
-		ioc_awaitable[ec]);
-
-	if (ec)
-		XLOG_ERR << "Session: "
-			<< connection_id
-			<< ", err: "
-			<< ec.message();
+	co_await send_string_response(
+		stream, req, connection_id,
+		http::status::ok, std::move(json),
+		"application/json; charset=utf-8");
 
 	co_return;
+}
+
+// Stream file body to the client using buffer_body serialization.
+template <typename Stream>
+inline awaitable_void stream_file_body(
+    Stream& stream,
+    buffer_response& res,
+    response_serializer& sr,
+    std::fstream& file_stream,
+    size_t content_length,
+    int64_t connection_id)
+{
+    boost::system::error_code ec;
+
+    res.body().data = nullptr;
+    res.body().more = false;
+
+    co_await http::async_write_header(stream, sr, ioc_awaitable[ec]);
+    if (ec)
+    {
+        XLOG_WARN << "Session: " << connection_id
+            << ", async_write_header: " << ec.message();
+        co_return;
+    }
+
+    std::vector<char> buffer(global_buffer_size);
+    char* bufs = buffer.data();
+    std::streamsize total = 0;
+
+    do
+    {
+        file_stream.read(bufs, global_buffer_size);
+
+        auto bytes_transferred = std::min<std::streamsize>(
+            file_stream.gcount(),
+            static_cast<std::streamsize>(content_length) - total);
+
+        if (bytes_transferred == 0 ||
+            total >= static_cast<std::streamsize>(content_length))
+        {
+            res.body().data = nullptr;
+            res.body().more = false;
+        }
+        else
+        {
+            res.body().data = bufs;
+            res.body().size = bytes_transferred;
+            res.body().more = true;
+        }
+
+        co_await http::async_write(stream, sr, ioc_awaitable[ec]);
+        total += bytes_transferred;
+
+        if (ec == http::error::need_buffer)
+        {
+            ec = {};
+            continue;
+        }
+        if (ec)
+        {
+            XLOG_WARN << "Session: " << connection_id
+                << ", async_write: " << ec.message();
+            co_return;
+        }
+    } while (!sr.is_done());
+
+    co_return;
+}
+
+// Calculate range boundaries for a partial content request.
+// Returns adjusted first/last positions and whether the range is valid.
+struct range_info
+{
+    int64_t first{0};
+    int64_t last{-1};
+    bool valid{false};
+};
+
+inline range_info resolve_range(
+    const ranges& range_list,
+    size_t content_length,
+    int64_t connection_id,
+    std::iostream& file_stream)
+{
+    range_info info;
+    if (range_list.empty())
+    {
+        info.valid = true;
+        info.first = 0;
+        info.last = static_cast<int64_t>(content_length) - 1;
+        return info;
+    }
+
+    auto r = range_list.front();
+
+    if (r.second == -1)
+    {
+        if (r.first < 0)
+        {
+            r.first = static_cast<int64_t>(content_length) + r.first;
+            r.second = static_cast<int64_t>(content_length) - 1;
+        }
+        else if (r.first >= 0)
+        {
+            r.second = static_cast<int64_t>(content_length) - 1;
+        }
+    }
+
+    if (r.second < r.first && r.second >= 0)
+    {
+        XLOG_WARN << "Session: " << connection_id
+            << ", invalid range: " << r.first << "-" << r.second;
+        return info;
+    }
+
+    file_stream.seekg(r.first, std::ios_base::beg);
+    info.first = r.first;
+    info.last = r.second;
+    info.valid = true;
+    return info;
+}
+
+// Select the MIME content type from the global map, defaulting to text/plain.
+inline std::string select_content_type(const fs::path& file)
+{
+    auto ext = strutil::to_lower(file.extension().string());
+    auto it = global_mimes.find(ext);
+    if (it != global_mimes.end())
+        return it->second;
+    return "text/plain; charset=utf-8";
 }
 
 template <typename Stream>
@@ -1180,39 +1279,26 @@ inline awaitable_void file_session(
 	int64_t connection_id,
 	fs::path file)
 {
-	XLOG_DBG << "Session: "
-		<< connection_id
-		<< ", file: "
-		<< file;
+	XLOG_DBG << "Session: " << connection_id << ", file: " << file;
 
 	if (req.method() != http::verb::get)
 	{
-		co_await error_session(
-			stream,
-			req,
-			connection_id,
-			http::status::bad_request,
-			"Bad request");
-
+		co_await error_session(stream, req, connection_id,
+			http::status::bad_request, "Bad request");
 		co_return;
 	}
 
 #ifdef WIN32
 	auto filename = file.wstring();
 	boost::replace_all(filename, "/", "\\");
-	// Windows use unc path workaround.
 	filename = L"\\\\?\\" + filename;
 	file = filename;
 #endif
+
 	if (!fs::exists(file))
 	{
-		co_await error_session(
-			stream,
-			req,
-			connection_id,
-			http::status::not_found,
-			"Not Found");
-
+		co_await error_session(stream, req, connection_id,
+			http::status::not_found, "Not Found");
 		co_return;
 	}
 
@@ -1225,148 +1311,116 @@ inline awaitable_void file_session(
 		std::ios_base::in);
 
 	auto range = get_ranges(req["Range"]);
-	http::status st = http::status::ok;
-
-	if (!range.empty())
-	{
-		st = http::status::partial_content;
-		auto& r = range.front();
-
-		if (r.second == -1)
-		{
-			if (r.first < 0)
-			{
-				r.first = content_length + r.first;
-				r.second = content_length - 1;
-			}
-			else if (r.first >= 0)
-			{
-				r.second = content_length - 1;
-			}
-		}
-
-		file_stream.seekg(r.first, std::ios_base::beg);
-	}
+	http::status st = range.empty() ? http::status::ok
+	                                : http::status::partial_content;
 
 	buffer_response res{ st, req.version() };
 	res.set(http::field::server, "httpd/1.0");
-	auto ext = strutil::to_lower(file.extension().string());
+	res.set(http::field::content_type, select_content_type(file));
 
-	if (global_mimes.count(ext))
-		res.set(http::field::content_type, global_mimes.at(ext));
-	else
-		res.set(http::field::content_type, "text/plain; charset=utf-8");
-
-	if (st == http::status::ok)
-		res.set(http::field::accept_ranges, "bytes");
-
-	if (st == http::status::partial_content)
+	if (!range.empty())
 	{
-		const auto& r = range.front();
+		auto info = resolve_range(range, content_length, connection_id, file_stream);
 
-		if (r.second < r.first && r.second >= 0)
+		if (!info.valid)
 		{
-			co_await error_session(
-				stream,
-				req,
-				connection_id,
-				http::status::range_not_satisfiable,
-				satisfiable_html);
-
+			co_await error_session(stream, req, connection_id,
+				http::status::range_not_satisfiable, satisfiable_html);
 			co_return;
 		}
 
 		std::string content_range = fmt::format(
-			"bytes {}-{}/{}",
-			r.first,
-			r.second,
-			content_length);
-
-		content_length = r.second - r.first + 1;
+			"bytes {}-{}/{}", info.first, info.last, content_length);
+		content_length = info.last - info.first + 1;
 		res.set(http::field::content_range, content_range);
 
-		XLOG_DBG << "Session: "
-			<< connection_id
-			<< ", range request: "
-			<< content_range;
+		XLOG_DBG << "Session: " << connection_id
+			<< ", range request: " << content_range;
+	}
+	else
+	{
+		res.set(http::field::accept_ranges, "bytes");
 	}
 
 	res.keep_alive(req.keep_alive());
 	res.content_length(content_length);
 
-	XLOG_INFO << "Session: "
-		<< connection_id
-		<< ", serving file: "
-		<< file.filename()
-		<< ", size: "
-		<< strutil::add_suffix(static_cast<float>(content_length));
+	XLOG_INFO << "Session: " << connection_id
+		<< ", serving file: " << file.filename()
+		<< ", size: " << strutil::add_suffix(static_cast<float>(content_length));
 
 	response_serializer sr(res);
 
-	res.body().data = nullptr;
-	res.body().more = false;
-
-	co_await http::async_write_header(
-		stream,
-		sr,
-		ioc_awaitable[ec]);
-	if (ec)
-	{
-		XLOG_WARN << "Session: "
-			<< connection_id
-			<< ", async_write_header: "
-			<< ec.message();
-
-		co_return;
-	}
-
-	std::vector<char> buffer(global_buffer_size);
-	char* bufs = buffer.data();
-	std::streamsize total = 0;
-
-	do
-	{
-		file_stream.read(bufs, global_buffer_size);
-
-		auto bytes_transferred = std::min<std::streamsize>(
-			file_stream.gcount(),
-			content_length - total);
-
-		if (bytes_transferred == 0 ||
-			total >= (std::streamsize)content_length)
-		{
-			res.body().data = nullptr;
-			res.body().more = false;
-		}
-		else
-		{
-			res.body().data = bufs;
-			res.body().size = bytes_transferred;
-			res.body().more = true;
-		}
-
-		co_await http::async_write(
-			stream,
-			sr,
-			ioc_awaitable[ec]);
-
-		total += bytes_transferred;
-		if (ec == http::error::need_buffer)
-		{
-			ec = {};
-			continue;
-		}
-		if (ec)
-		{
-			XLOG_WARN << "Session: "
-				<< connection_id
-				<< ", async_write: "
-				<< ec.message();
-			co_return;
-		}
-	} while (!sr.is_done());
+	co_await stream_file_body(
+		stream, res, sr, file_stream, content_length, connection_id);
 
 	co_return;
+}
+
+// Format remote endpoint as a string suitable for logging.
+inline std::string format_remote_host(tcp::endpoint endp)
+{
+    if (endp.address().is_v6())
+        return "[" + endp.address().to_string() + "]:" + std::to_string(endp.port());
+    return endp.address().to_string() + ":" + std::to_string(endp.port());
+}
+
+// Handle HTTP 100-continue expectation.
+template <typename Stream>
+inline awaitable_void handle_100_continue(
+    Stream& stream,
+    dynamic_request& req_ref,
+    int64_t connection_id)
+{
+    boost::system::error_code ec;
+    http::response<http::empty_body> res;
+    res.version(11);
+    res.result(http::status::continue_);
+
+    co_await http::async_write(stream, res, ioc_awaitable[ec]);
+    if (ec)
+    {
+        XLOG_ERR << "Session: " << connection_id
+            << ", expect async_write: " << ec.message();
+    }
+    co_return;
+}
+
+// Resolve the request target against global_path and validate it
+// (path traversal protection). On success, returns the canonical path.
+// On failure, returns an empty path and sets ec.
+inline fs::path resolve_request_path(
+    const std::string& target,
+    boost::system::error_code& ec)
+{
+    std::string unescaped;
+    strutil::unescape({target.data(), target.size()}, unescaped);
+    if (!unescaped.empty() && unescaped[0] == '/')
+        unescaped.erase(0, 1);
+
+    // Split off query string.
+    auto qpos = unescaped.find('?');
+    std::string path_part = unescaped.substr(0, qpos);
+
+    auto current_path = fs::canonical(
+        global_path / boost::nowide::widen(path_part), ec).make_preferred();
+
+    if (ec || !current_path.wstring().starts_with(global_path.wstring()))
+    {
+        ec = boost::asio::error::not_found;
+        return {};
+    }
+
+    return current_path;
+}
+
+// Extract query string from a raw target string.
+inline std::string extract_query_string(const std::string& target)
+{
+    auto qpos = target.find('?');
+    if (qpos != std::string::npos)
+        return target.substr(qpos + 1);
+    return {};
 }
 
 template <typename Stream>
@@ -1383,18 +1437,7 @@ inline awaitable_void session(Stream stream)
 	std::string remote_host;
 	auto endp = beast::get_lowest_layer(stream).socket().remote_endpoint(ec);
 	if (!ec)
-	{
-		if (endp.address().is_v6())
-		{
-			remote_host = "[" + endp.address().to_string()
-				+ "]:" + std::to_string(endp.port());
-		}
-		else
-		{
-			remote_host = endp.address().to_string()
-				+ ":" + std::to_string(endp.port());
-		}
-	}
+		remote_host = format_remote_host(endp);
 
 	XLOG_DBG << "Session: "
 		<< connection_id
@@ -1452,21 +1495,9 @@ inline awaitable_void session(Stream stream)
 
 		if (req_ref[http::field::expect] == "100-continue")
 		{
-			http::response<http::empty_body> res;
-			res.version(11);
-			res.result(http::status::continue_);
-
-			co_await http::async_write(stream,
-				res,
-				ioc_awaitable[ec]);
+			co_await handle_100_continue(stream, req_ref, connection_id);
 			if (ec)
-			{
-				XLOG_ERR << "Session: "
-					<< connection_id
-					<< ", expect async_write: "
-					<< ec.message();
 				co_return;
-			}
 		}
 
 		// Git LFS 路由处理：在释放 parser 之前检查，以便读取请求体.
@@ -1475,66 +1506,44 @@ inline awaitable_void session(Stream stream)
 			auto target_str = req_ref.target();
 			auto method = req_ref.method();
 
-			// POST /objects/batch  — LFS 批处理请求.
 			if (target_str == "/objects/batch" && method == http::verb::post)
 			{
-				XLOG_INFO << "Session: "
-					<< connection_id
-					<< ", LFS batch request";
-
-				// 读取完整的请求体（含 body）.
-				co_await http::async_read(
-					stream, buffer, parser, ioc_awaitable[ec]);
+				XLOG_INFO << "Session: " << connection_id << ", LFS batch request";
+				co_await http::async_read(stream, buffer, parser, ioc_awaitable[ec]);
 				if (ec)
 					co_return;
-
-				dynamic_request req = parser.release();
-
-				co_await lfs_batch_session(
-					stream, req, connection_id,
-					std::is_same_v<std::decay_t<Stream>, ssl_stream>);
+				{
+					auto req = parser.release();
+					co_await lfs_batch_session(stream, req, connection_id,
+						std::is_same_v<std::decay_t<Stream>, ssl_stream>);
+				}
 				co_return;
 			}
 
-			// PUT /files/<oid> — LFS 文件上传（流式读取 body）.
-			if (target_str.starts_with("/files/") &&
-				method == http::verb::put)
+			if (target_str.starts_with("/files/") && method == http::verb::put)
 			{
-				auto oid = target_str.substr(7); // 跳过 "/files/"
+				auto oid = target_str.substr(7);
 				if (!oid.empty())
 				{
-					XLOG_INFO << "Session: "
-						<< connection_id
-						<< ", LFS file upload, oid: "
-						<< std::string(oid);
-
-					// 使用流式上传，避免将整个 body 加载到内存.
+					XLOG_INFO << "Session: " << connection_id
+						<< ", LFS file upload, oid: " << std::string(oid);
 					co_await lfs_file_upload_session(
-						stream, buffer,
-						parser,
-						connection_id, oid);
-					co_return;
+						stream, buffer, parser, connection_id, oid);
 				}
+				co_return;
 			}
 
-			// GET /files/<oid> — LFS 文件下载.
-			if (target_str.starts_with("/files/") &&
-				method == http::verb::get)
+			if (target_str.starts_with("/files/") && method == http::verb::get)
 			{
-				auto oid = target_str.substr(7); // 跳过 "/files/"
+				auto oid = target_str.substr(7);
 				if (!oid.empty())
 				{
-					XLOG_INFO << "Session: "
-						<< connection_id
-						<< ", LFS file download, oid: "
-						<< std::string(oid);
-
-					dynamic_request req = parser.release();
-
-					co_await lfs_file_download_session(
-						stream, req, connection_id, oid);
-					co_return;
+					XLOG_INFO << "Session: " << connection_id
+						<< ", LFS file download, oid: " << std::string(oid);
+					auto req = parser.release();
+					co_await lfs_file_download_session(stream, req, connection_id, oid);
 				}
+				co_return;
 			}
 		}
 
@@ -1545,22 +1554,13 @@ inline awaitable_void session(Stream stream)
 
 		if (global_pipe)
 		{
-			co_await pipe_session(
-				stream,
-				req,
-				connection_id);
-
+			co_await pipe_session(stream, req, connection_id);
 			co_return;
 		}
 
 		if (fs::is_regular_file(global_path))
 		{
-			co_await file_session(
-				stream,
-				req,
-				connection_id,
-				global_path);
-
+			co_await file_session(stream, req, connection_id, global_path);
 			if (keep_alive)
 				continue;
 			co_return;
@@ -1568,56 +1568,27 @@ inline awaitable_void session(Stream stream)
 
 		if (!fs::is_directory(global_path))
 		{
-			co_await error_session(
-				stream,
-				req,
-				connection_id,
-				http::status::internal_server_error,
-				"internal server error");
-
+			co_await error_session(stream, req, connection_id,
+				http::status::internal_server_error, "internal server error");
 			if (keep_alive)
 				continue;
 			co_return;
 		}
 
 		keep_alive = req.keep_alive();
-		std::string target;
 
-		strutil::unescape(
-			{
-				req.target().data(),
-				req.target().size()
-			},
-			target);
-		if (!target.empty() && target[0] == '/')
-			target.erase(0, 1);
+		auto current_path = resolve_request_path(
+			std::string(req.target()), ec);
 
-		// 解析查询字符串 (如 ?q=json).
-		std::string query_string;
-		auto qpos = target.find('?');
-		if (qpos != std::string::npos)
+		if (ec || current_path.empty())
 		{
-			query_string = target.substr(qpos + 1);
-			target.resize(qpos);
-		}
-
-		// 构造完整路径以及根据请求的目标构造路径.
-		auto current_path = fs::canonical(global_path /
-			boost::nowide::widen(target), ec).make_preferred();
-
-		if (!current_path.wstring().starts_with(global_path.wstring()) || ec)
-		{
-			co_await error_session(
-				stream,
-				req,
-				connection_id,
-				http::status::not_found,
-				"Not Found");
+			co_await error_session(stream, req, connection_id,
+				http::status::not_found, "Not Found");
 
 			XLOG_WARN << "Session: "
 				<< connection_id
 				<< ", path traversal blocked: "
-				<< target;
+				<< std::string(req.target());
 
 			if (keep_alive)
 				continue;
@@ -1629,21 +1600,16 @@ inline awaitable_void session(Stream stream)
 		if (fs::is_directory(realpath))
 		{
 			// 如果请求带有 ?q=json 查询参数, 则返回 JSON 格式的目录列表.
+			auto query_string = extract_query_string(
+				std::string(req.target()));
 			auto query_params = parse_query_string(query_string);
 			if (auto qit = query_params.find("q");
 				qit != query_params.end() && qit->second == "json")
 			{
-				XLOG_DBG << "Session: "
-					<< connection_id
-					<< ", directory JSON listing for: "
-					<< current_path;
+				XLOG_DBG << "Session: " << connection_id
+					<< ", directory JSON listing for: " << current_path;
 
-				co_await dir_session_json(
-					stream,
-					req,
-					connection_id,
-					current_path);
-
+				co_await dir_session_json(stream, req, connection_id, current_path);
 				if (keep_alive)
 					continue;
 				co_return;
@@ -1657,33 +1623,19 @@ inline awaitable_void session(Stream stream)
 
 			if (!index_ec && fs::exists(index_path, index_ec))
 			{
-				XLOG_DBG << "Session: "
-					<< connection_id
-					<< ", serving index file: "
-					<< index_path;
+				XLOG_DBG << "Session: " << connection_id
+					<< ", serving index file: " << index_path;
 
-				co_await file_session(
-					stream,
-					req,
-					connection_id,
-					index_path);
-
+				co_await file_session(stream, req, connection_id, index_path);
 				if (keep_alive)
 					continue;
 				co_return;
 			}
 
-			XLOG_DBG << "Session: "
-				<< connection_id
-				<< ", directory listing for: "
-				<< current_path;
+			XLOG_DBG << "Session: " << connection_id
+				<< ", directory listing for: " << current_path;
 
-			co_await dir_session(
-				stream,
-				req,
-				connection_id,
-				current_path);
-
+			co_await dir_session(stream, req, connection_id, current_path);
 			if (keep_alive)
 				continue;
 			co_return;
@@ -1691,17 +1643,10 @@ inline awaitable_void session(Stream stream)
 
 		if (fs::is_regular_file(realpath))
 		{
-			XLOG_DBG << "Session: "
-				<< connection_id
-				<< ", serving file: "
-				<< current_path;
+			XLOG_DBG << "Session: " << connection_id
+				<< ", serving file: " << current_path;
 
-			co_await file_session(
-				stream,
-				req,
-				connection_id,
-				current_path);
-
+			co_await file_session(stream, req, connection_id, current_path);
 			if (keep_alive)
 				continue;
 			co_return;
@@ -1709,34 +1654,22 @@ inline awaitable_void session(Stream stream)
 
 		if (!fs::exists(realpath))
 		{
-			co_await error_session(
-				stream,
-				req,
-				connection_id,
-				http::status::not_found,
-				"Not Found");
+			co_await error_session(stream, req, connection_id,
+				http::status::not_found, "Not Found");
 
-			XLOG_WARN << "Session: "
-				<< connection_id
-				<< ", path not found: "
-				<< current_path;
+			XLOG_WARN << "Session: " << connection_id
+				<< ", path not found: " << current_path;
 
 			if (keep_alive)
 				continue;
 			co_return;
 		}
 
-		co_await error_session(
-			stream,
-			req,
-			connection_id,
-			http::status::bad_request,
-			"Bad request");
+		co_await error_session(stream, req, connection_id,
+			http::status::bad_request, "Bad request");
 
-		XLOG_WARN << "Session: "
-			<< connection_id
-			<< ", bad request for: "
-			<< current_path;
+		XLOG_WARN << "Session: " << connection_id
+			<< ", bad request for: " << current_path;
 
 		if (keep_alive)
 			continue;
@@ -1839,6 +1772,110 @@ inline awaitable_void ssl_listen(
 }
 
 
+// Set up the global SSL context from certificates discovered in cert_dir.
+// Returns true on success, false on failure (with log).
+inline bool setup_ssl_context(const std::string& httpd_ssl_cert_dir)
+{
+    auto cert_dir = fs::path(httpd_ssl_cert_dir).make_preferred();
+    XLOG_INFO << "Scanning SSL certificate directory: " << cert_dir;
+
+    if (!fs::is_directory(cert_dir))
+    {
+        XLOG_ERR << "SSL cert directory not found: " << cert_dir;
+        return false;
+    }
+
+    auto certs = scan_cert_directory(cert_dir);
+    if (certs.empty())
+    {
+        XLOG_ERR << "No valid SSL certificates found in: " << cert_dir;
+        return false;
+    }
+
+    XLOG_INFO << "Found " << certs.size()
+        << " certificate(s) in: " << cert_dir;
+
+    global_ssl_ctx = std::make_shared<ssl::context>(
+        ssl::context::tls_server);
+
+    for (const auto& info : certs)
+    {
+        boost::system::error_code ec;
+
+        global_ssl_ctx->use_certificate_chain_file(
+            info.cert_file.string(), ec);
+        if (ec)
+        {
+            XLOG_ERR << "Failed to load cert: "
+                << info.cert_file << ", err: " << ec.message();
+            continue;
+        }
+
+        global_ssl_ctx->use_private_key_file(
+            info.key_file.string(),
+            ssl::context::pem, ec);
+        if (ec)
+        {
+            XLOG_ERR << "Failed to load key: "
+                << info.key_file << ", err: " << ec.message();
+            continue;
+        }
+
+        XLOG_INFO << "SSL certificate loaded: "
+            << info.cert_file.filename().string()
+            << " (domain: " << info.domain << ")";
+        break; // Only use the first valid certificate.
+    }
+
+    global_ssl_ctx->set_options(
+        ssl::context::default_workarounds |
+        ssl::context::no_sslv2 |
+        ssl::context::no_sslv3 |
+        ssl::context::single_dh_use);
+
+    return true;
+}
+
+// Parse the listen address string into host, port, and v6only flag.
+inline bool parse_listen_address(
+    const std::string& httpd_listen,
+    tcp::endpoint& endpoint)
+{
+    std::string host;
+    std::string port;
+    bool v6only;
+
+    if (!parse_endpoint_string(httpd_listen, host, port, v6only))
+        return false;
+
+    endpoint = tcp::endpoint(
+        net::ip::make_address(host),
+        static_cast<unsigned short>(std::stoi(port)));
+    return true;
+}
+
+// Spawn N acceptor coroutines on the given executor.
+inline void spawn_acceptor(
+    net::io_context::executor_type ex,
+    tcp_acceptor& acceptor,
+    ssl::context* ssl_ctx)
+{
+    int count = 16;
+
+    if (ssl_ctx)
+    {
+        XLOG_INFO << "Spawning 16 SSL accept coroutines...";
+        for (int i = 0; i < count; i++)
+            net::co_spawn(ex, ssl_listen(acceptor, *ssl_ctx), net::detached);
+    }
+    else
+    {
+        XLOG_INFO << "Spawning 16 accept coroutines...";
+        for (int i = 0; i < count; i++)
+            net::co_spawn(ex, listen(acceptor), net::detached);
+    }
+}
+
 int main(int argc, char** argv)
 {
 	platform_init();
@@ -1879,95 +1916,22 @@ int main(int argc, char** argv)
 
 	// 初始化日志系统，可指定日志输出目录.
 	if (vm.count("log-dir"))
-	{
 		xlogger::init_logging(httpd_log_dir);
-	}
 
 	// SSL 证书目录处理.
-	if (vm.count("ssl-cert-dir"))
-	{
-		auto cert_dir = fs::path(httpd_ssl_cert_dir).make_preferred();
-		XLOG_INFO << "Scanning SSL certificate directory: " << cert_dir;
+	if (vm.count("ssl-cert-dir") && !setup_ssl_context(httpd_ssl_cert_dir))
+		return EXIT_FAILURE;
 
-		if (!fs::is_directory(cert_dir))
-		{
-			XLOG_ERR << "SSL cert directory not found: " << cert_dir;
-			return EXIT_FAILURE;
-		}
-
-		auto certs = scan_cert_directory(cert_dir);
-		if (certs.empty())
-		{
-			XLOG_ERR << "No valid SSL certificates found in: " << cert_dir;
-			return EXIT_FAILURE;
-		}
-
-		XLOG_INFO << "Found " << certs.size()
-			<< " certificate(s) in: " << cert_dir;
-
-		global_ssl_ctx = std::make_shared<ssl::context>(
-			ssl::context::tls_server);
-
-		for (const auto& info : certs)
-		{
-			boost::system::error_code ec;
-
-			global_ssl_ctx->use_certificate_chain_file(
-				info.cert_file.string(), ec);
-			if (ec)
-			{
-				XLOG_ERR << "Failed to load cert: "
-					<< info.cert_file
-					<< ", err: " << ec.message();
-				continue;
-			}
-
-			global_ssl_ctx->use_private_key_file(
-				info.key_file.string(),
-				ssl::context::pem, ec);
-			if (ec)
-			{
-				XLOG_ERR << "Failed to load key: "
-					<< info.key_file
-					<< ", err: " << ec.message();
-				continue;
-			}
-
-			XLOG_INFO << "SSL certificate loaded: "
-				<< info.cert_file.filename().string()
-				<< " (domain: " << info.domain << ")";
-			break; // 目前只使用找到的第一个有效证书.
-		}
-
-		// verify options.
-		global_ssl_ctx->set_options(
-			ssl::context::default_workarounds |
-			ssl::context::no_sslv2 |
-			ssl::context::no_sslv3 |
-			ssl::context::single_dh_use);
-	}
-
-	std::string host;
-	std::string port;
-	bool v6only;
+	tcp::endpoint listen_endpoint;
 
 	// 解析侦听端口.
-	if (!parse_endpoint_string(
-		httpd_listen,
-		host,
-		port,
-		v6only))
+	if (!parse_listen_address(httpd_listen, listen_endpoint))
 	{
 		std::cerr << "Cannot parse listen: " << httpd_listen << "\n";
 		return EXIT_FAILURE;
 	}
 
 	net::io_context ctx;
-
-	auto listen_endpoint = tcp::endpoint(
-			net::ip::make_address(host),
-			static_cast<unsigned short>(std::stoi(port)));
-
 	tcp_acceptor acceptor(ctx, listen_endpoint);
 
 	XLOG_INFO << "Starting httpd server..."
@@ -1987,28 +1951,7 @@ int main(int argc, char** argv)
 	}
 
 	// 启动tcp侦听.
-	if (global_ssl_ctx)
-	{
-		XLOG_INFO << "Spawning 16 SSL accept coroutines...";
-		for (int i = 0; i < 16; i++)
-		{
-			net::co_spawn(
-				ctx.get_executor(),
-				ssl_listen(acceptor, *global_ssl_ctx),
-				net::detached);
-		}
-	}
-	else
-	{
-		XLOG_INFO << "Spawning 16 accept coroutines...";
-		for (int i = 0; i < 16; i++)
-		{
-			net::co_spawn(
-				ctx.get_executor(),
-				listen(acceptor),
-				net::detached);
-		}
-	}
+	spawn_acceptor(ctx.get_executor(), acceptor, global_ssl_ctx.get());
 
 	// 如果是pipe, 则直接启动文件读.
 	if (httpd_doc.empty() || httpd_doc == "-")
