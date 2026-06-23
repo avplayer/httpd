@@ -1810,7 +1810,7 @@ public:
 };
 } // namespace xlogger
 
-#if !defined(NDEBUG) && !defined(DISABLE_XLOGGER)
+#if !defined(DISABLE_XLOGGER)
 
 // API for logging.
 namespace xlogger {
