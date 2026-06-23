@@ -1421,13 +1421,16 @@ inline awaitable_void session(Stream stream)
 	for (;;)
 	{
 		request_parser parser;
-		parser.body_limit(std::numeric_limits<uint64_t>::max());
 
+		// 设置请求体和请求头的限制，防止过大的请求导致内存耗尽或拒绝服务攻击。
+		parser.body_limit(std::numeric_limits<uint64_t>::max());
+		parser.header_limit(static_cast<uint32_t>(global_buffer_size >> 2));
+
+		// 读取 HTTP 请求头.
 		co_await http::async_read_header(stream,
 			buffer,
 			parser,
 			ioc_awaitable[ec]);
-
 		if (ec)
 		{
 			XLOG_WARN << "Session: "
@@ -1447,7 +1450,7 @@ inline awaitable_void session(Stream stream)
 			<< ", host: "
 			<< remote_host;
 
-		if (parser.get()[http::field::expect] == "100-continue")
+		if (req_ref[http::field::expect] == "100-continue")
 		{
 			http::response<http::empty_body> res;
 			res.version(11);
@@ -1469,8 +1472,8 @@ inline awaitable_void session(Stream stream)
 		// Git LFS 路由处理：在释放 parser 之前检查，以便读取请求体.
 		if (!global_lfs_storage_dir.empty())
 		{
-			auto target_str = parser.get().target();
-			auto method = parser.get().method();
+			auto target_str = req_ref.target();
+			auto method = req_ref.method();
 
 			// POST /objects/batch  — LFS 批处理请求.
 			if (target_str == "/objects/batch" && method == http::verb::post)
@@ -1508,7 +1511,7 @@ inline awaitable_void session(Stream stream)
 					// 使用流式上传，避免将整个 body 加载到内存.
 					co_await lfs_file_upload_session(
 						stream, buffer,
-						parser.get(),
+						parser,
 						connection_id, oid);
 					co_return;
 				}

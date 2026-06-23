@@ -277,11 +277,12 @@ template <typename Stream>
 inline awaitable_void lfs_file_upload_session(
     Stream& stream,
     beast::flat_buffer& buffer,
-    http::request<http::dynamic_body>& req,
+    http::request_parser<http::request<http::dynamic_body>::body_type>& parser,
     int64_t connection_id,
     std::string_view oid)
 {
     boost::system::error_code ec;
+    auto& req = parser.get();
 
     XLOG_DBG << "LFS Session: " << connection_id
         << ", file upload (streaming), oid: " << oid;
@@ -308,8 +309,7 @@ inline awaitable_void lfs_file_upload_session(
         << ", uploading file: " << file_path;
 
     // 确保存储目录存在.
-    boost::system::error_code mkdir_ec;
-    fs::create_directories(global_lfs_storage_dir, mkdir_ec);
+    fs::create_directories(global_lfs_storage_dir, ec);
 
     std::ofstream file_stream(
         file_path.string(),
@@ -348,51 +348,49 @@ inline awaitable_void lfs_file_upload_session(
         co_return;
     }
 
-    // 从请求头创建 buffer_body 解析器，流式读取 body.
-    http::request<http::buffer_body> buffer_req{std::move(req).base()};
-    http::request_parser<http::buffer_body> body_parser{std::move(buffer_req)};
-    body_parser.body_limit(std::numeric_limits<uint64_t>::max());
-
-    // 分块读取 body，默认 64KB 一块.
-    constexpr std::size_t chunk_size = 64 * 1024;
-    std::vector<char> chunk(chunk_size);
-
-    for (;;)
+    // 循环读取请求体，写入文件并计算哈希.
+    while (!parser.is_done())
     {
-        auto& body = body_parser.get().body();
-        body.data = chunk.data();
-        body.size = chunk.size();
-        body.more = true;
+        co_await http::async_read_some(stream, buffer, parser, ioc_awaitable[ec]);
 
-        co_await http::async_read(stream, buffer, body_parser, ioc_awaitable[ec]);
+        auto& body = req.body();
+        auto bodysize = body.size();
 
-        std::size_t bytes_written = chunk.size() - body.size;
-        if (bytes_written > 0)
+        if (bodysize > 0)
         {
-            file_stream.write(chunk.data(), bytes_written);
-            if (!file_stream)
+            for (auto const buf : boost::beast::buffers_range(body.data()))
             {
-                XLOG_ERR << "LFS Session: " << connection_id
-                    << ", file write failed";
+                auto bufsize = buf.size();
+                auto bufptr = static_cast<const char*>(buf.data());
 
-                file_stream.close();
-                boost::system::error_code remove_ec;
-                fs::remove(file_path, remove_ec);
+                file_stream.write(bufptr, bufsize);
 
-                http::response<http::string_body> res{
-                    http::status::internal_server_error,
-                    body_parser.get().version()
-                };
-                res.set(http::field::server, "httpd/1.0");
-                res.set(http::field::content_type, "application/vnd.git-lfs+json");
-                res.keep_alive(body_parser.get().keep_alive());
-                res.body() = R"({"message":"Upload Failed"})";
-                res.prepare_payload();
-                co_await http::async_write(stream, res, ioc_awaitable[ec]);
-                co_return;
+                if (!file_stream)
+                {
+                    XLOG_ERR << "LFS Session: " << connection_id
+                        << ", file write failed";
+
+                    file_stream.close();
+                    boost::system::error_code remove_ec;
+                    fs::remove(file_path, remove_ec);
+
+                    http::response<http::string_body> res{
+                        http::status::internal_server_error,
+                        req.version()
+                    };
+                    res.set(http::field::server, "httpd/1.0");
+                    res.set(http::field::content_type, "application/vnd.git-lfs+json");
+                    res.keep_alive(req.keep_alive());
+                    res.body() = R"({"message":"Upload Failed"})";
+                    res.prepare_payload();
+                    co_await http::async_write(stream, res, ioc_awaitable[ec]);
+                    co_return;
+                }
+
+                EVP_DigestUpdate(md_ctx.get(), bufptr, bufsize);
             }
 
-            EVP_DigestUpdate(md_ctx.get(), chunk.data(), bytes_written);
+            body.consume(bodysize);
         }
 
         if (ec == http::error::need_buffer)
@@ -411,11 +409,11 @@ inline awaitable_void lfs_file_upload_session(
 
             http::response<http::string_body> res{
                 http::status::internal_server_error,
-                body_parser.get().version()
+                req.version()
             };
             res.set(http::field::server, "httpd/1.0");
             res.set(http::field::content_type, "application/vnd.git-lfs+json");
-            res.keep_alive(body_parser.get().keep_alive());
+            res.keep_alive(req.keep_alive());
             res.body() = R"({"message":"Upload Failed"})";
             res.prepare_payload();
             co_await http::async_write(stream, res, ioc_awaitable[ec]);
@@ -457,11 +455,11 @@ inline awaitable_void lfs_file_upload_session(
 
         http::response<http::string_body> res{
             http::status::bad_request,
-            body_parser.get().version()
+            req.version()
         };
         res.set(http::field::server, "httpd/1.0");
         res.set(http::field::content_type, "application/vnd.git-lfs+json");
-        res.keep_alive(body_parser.get().keep_alive());
+        res.keep_alive(req.keep_alive());
         res.body() = R"({"message":"SHA256 mismatch: OID does not match content"})";
         res.prepare_payload();
         co_await http::async_write(stream, res, ioc_awaitable[ec]);
@@ -472,11 +470,11 @@ inline awaitable_void lfs_file_upload_session(
 
     http::response<http::string_body> res{
         http::status::ok,
-        body_parser.get().version()
+        req.version()
     };
     res.set(http::field::server, "httpd/1.0");
     res.set(http::field::content_type, "application/vnd.git-lfs+json");
-    res.keep_alive(body_parser.get().keep_alive());
+    res.keep_alive(req.keep_alive());
     res.body() = R"({})";
     res.prepare_payload();
     co_await http::async_write(stream, res, ioc_awaitable[ec]);
