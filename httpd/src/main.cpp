@@ -1493,29 +1493,38 @@ inline awaitable_void session(Stream stream)
 				co_return;
 			}
 
-			// PUT /files/<oid> 或 GET /files/<oid> — LFS 文件传输.
+			// PUT /files/<oid> — LFS 文件上传（流式读取 body）.
 			if (target_str.starts_with("/files/") &&
-				(method == http::verb::put || method == http::verb::get))
+				method == http::verb::put)
 			{
-				// 提取 OID.
 				auto oid = target_str.substr(7); // 跳过 "/files/"
 				if (!oid.empty())
 				{
 					XLOG_INFO << "Session: "
 						<< connection_id
-						<< ", LFS file "
-						<< (method == http::verb::put ? "upload" : "download")
-						<< ", oid: "
+						<< ", LFS file upload, oid: "
 						<< std::string(oid);
 
-					// PUT 请求需要读取 body.
-					if (method == http::verb::put)
-					{
-						co_await http::async_read(
-							stream, buffer, parser, ioc_awaitable[ec]);
-						if (ec)
-							co_return;
-					}
+					// 使用流式上传，避免将整个 body 加载到内存.
+					co_await lfs_file_upload_session(
+						stream, buffer,
+						parser.get(),
+						connection_id, oid);
+					co_return;
+				}
+			}
+
+			// GET /files/<oid> — LFS 文件下载.
+			if (target_str.starts_with("/files/") &&
+				method == http::verb::get)
+			{
+				auto oid = target_str.substr(7); // 跳过 "/files/"
+				if (!oid.empty())
+				{
+					XLOG_INFO << "Session: "
+						<< connection_id
+						<< ", LFS file download, oid: "
+						<< std::string(oid);
 
 					dynamic_request req = parser.release();
 

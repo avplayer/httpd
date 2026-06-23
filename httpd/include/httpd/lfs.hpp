@@ -270,6 +270,227 @@ inline awaitable_void lfs_batch_session(
 }
 
 //////////////////////////////////////////////////////////////////////////
+// LFS 文件上传处理 (PUT /files/{oid}) — 流式读取 body，避免内存暴涨
+//////////////////////////////////////////////////////////////////////////
+
+template <typename Stream>
+inline awaitable_void lfs_file_upload_session(
+    Stream& stream,
+    beast::flat_buffer& buffer,
+    http::request<http::dynamic_body>& req,
+    int64_t connection_id,
+    std::string_view oid)
+{
+    boost::system::error_code ec;
+
+    XLOG_DBG << "LFS Session: " << connection_id
+        << ", file upload (streaming), oid: " << oid;
+
+    // 校验 OID.
+    if (!lfs_detail::is_valid_oid(oid))
+    {
+        http::response<http::string_body> res{
+            http::status::bad_request,
+            req.version()
+        };
+        res.set(http::field::server, "httpd/1.0");
+        res.set(http::field::content_type, "application/vnd.git-lfs+json");
+        res.keep_alive(req.keep_alive());
+        res.body() = R"({"message":"Invalid OID"})";
+        res.prepare_payload();
+        co_await http::async_write(stream, res, ioc_awaitable[ec]);
+        co_return;
+    }
+
+    fs::path file_path = global_lfs_storage_dir / std::string(oid);
+
+    XLOG_DBG << "LFS Session: " << connection_id
+        << ", uploading file: " << file_path;
+
+    // 确保存储目录存在.
+    boost::system::error_code mkdir_ec;
+    fs::create_directories(global_lfs_storage_dir, mkdir_ec);
+
+    std::ofstream file_stream(
+        file_path.string(),
+        std::ios_base::binary | std::ios_base::trunc);
+
+    if (!file_stream.is_open())
+    {
+        http::response<http::string_body> res{
+            http::status::internal_server_error,
+            req.version()
+        };
+        res.set(http::field::server, "httpd/1.0");
+        res.set(http::field::content_type, "application/vnd.git-lfs+json");
+        res.keep_alive(req.keep_alive());
+        res.body() = R"({"message":"Internal Server Error"})";
+        res.prepare_payload();
+        co_await http::async_write(stream, res, ioc_awaitable[ec]);
+        co_return;
+    }
+
+    // 初始化 SHA-256 哈希计算上下文.
+    std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> md_ctx(
+        EVP_MD_CTX_new(), EVP_MD_CTX_free);
+    if (!md_ctx || EVP_DigestInit_ex(md_ctx.get(), EVP_sha256(), nullptr) != 1)
+    {
+        http::response<http::string_body> res{
+            http::status::internal_server_error,
+            req.version()
+        };
+        res.set(http::field::server, "httpd/1.0");
+        res.set(http::field::content_type, "application/vnd.git-lfs+json");
+        res.keep_alive(req.keep_alive());
+        res.body() = R"({"message":"Internal Server Error"})";
+        res.prepare_payload();
+        co_await http::async_write(stream, res, ioc_awaitable[ec]);
+        co_return;
+    }
+
+    // 从请求头创建 buffer_body 解析器，流式读取 body.
+    http::request<http::buffer_body> buffer_req{std::move(req).base()};
+    http::request_parser<http::buffer_body> body_parser{std::move(buffer_req)};
+    body_parser.body_limit(std::numeric_limits<uint64_t>::max());
+
+    // 分块读取 body，默认 64KB 一块.
+    constexpr std::size_t chunk_size = 64 * 1024;
+    std::vector<char> chunk(chunk_size);
+
+    for (;;)
+    {
+        auto& body = body_parser.get().body();
+        body.data = chunk.data();
+        body.size = chunk.size();
+        body.more = true;
+
+        co_await http::async_read(stream, buffer, body_parser, ioc_awaitable[ec]);
+
+        std::size_t bytes_written = chunk.size() - body.size;
+        if (bytes_written > 0)
+        {
+            file_stream.write(chunk.data(), bytes_written);
+            if (!file_stream)
+            {
+                XLOG_ERR << "LFS Session: " << connection_id
+                    << ", file write failed";
+
+                file_stream.close();
+                boost::system::error_code remove_ec;
+                fs::remove(file_path, remove_ec);
+
+                http::response<http::string_body> res{
+                    http::status::internal_server_error,
+                    body_parser.get().version()
+                };
+                res.set(http::field::server, "httpd/1.0");
+                res.set(http::field::content_type, "application/vnd.git-lfs+json");
+                res.keep_alive(body_parser.get().keep_alive());
+                res.body() = R"({"message":"Upload Failed"})";
+                res.prepare_payload();
+                co_await http::async_write(stream, res, ioc_awaitable[ec]);
+                co_return;
+            }
+
+            EVP_DigestUpdate(md_ctx.get(), chunk.data(), bytes_written);
+        }
+
+        if (ec == http::error::need_buffer)
+        {
+            ec = {};
+            continue;
+        }
+        if (ec)
+        {
+            XLOG_ERR << "LFS Session: " << connection_id
+                << ", upload read error: " << ec.message();
+
+            file_stream.close();
+            boost::system::error_code remove_ec;
+            fs::remove(file_path, remove_ec);
+
+            http::response<http::string_body> res{
+                http::status::internal_server_error,
+                body_parser.get().version()
+            };
+            res.set(http::field::server, "httpd/1.0");
+            res.set(http::field::content_type, "application/vnd.git-lfs+json");
+            res.keep_alive(body_parser.get().keep_alive());
+            res.body() = R"({"message":"Upload Failed"})";
+            res.prepare_payload();
+            co_await http::async_write(stream, res, ioc_awaitable[ec]);
+            co_return;
+        }
+        break;
+    }
+
+    // 完成哈希计算.
+    unsigned char hash[EVP_MAX_MD_SIZE];
+    unsigned int hash_len = 0;
+    EVP_DigestFinal_ex(md_ctx.get(), hash, &hash_len);
+
+    // 将哈希值转换为十六进制字符串.
+    static const char hex_chars[] = "0123456789abcdef";
+    std::string computed_oid;
+    computed_oid.reserve(64);
+    for (unsigned int i = 0; i < hash_len; ++i)
+    {
+        computed_oid += hex_chars[(hash[i] >> 4) & 0x0F];
+        computed_oid += hex_chars[hash[i] & 0x0F];
+    }
+
+    // 校验哈希是否与请求中的 OID 一致.
+    if (computed_oid != oid)
+    {
+        file_stream.close();
+        boost::system::error_code remove_ec;
+        fs::remove(file_path, remove_ec);
+        if (remove_ec)
+        {
+            XLOG_ERR << "LFS Session: " << connection_id
+                << ", failed to remove mismatched file: " << remove_ec.message();
+        }
+
+        XLOG_ERR << "LFS Session: " << connection_id
+            << ", SHA-256 mismatch: expected " << oid
+            << ", computed " << computed_oid;
+
+        http::response<http::string_body> res{
+            http::status::bad_request,
+            body_parser.get().version()
+        };
+        res.set(http::field::server, "httpd/1.0");
+        res.set(http::field::content_type, "application/vnd.git-lfs+json");
+        res.keep_alive(body_parser.get().keep_alive());
+        res.body() = R"({"message":"SHA256 mismatch: OID does not match content"})";
+        res.prepare_payload();
+        co_await http::async_write(stream, res, ioc_awaitable[ec]);
+        co_return;
+    }
+
+    file_stream.close();
+
+    http::response<http::string_body> res{
+        http::status::ok,
+        body_parser.get().version()
+    };
+    res.set(http::field::server, "httpd/1.0");
+    res.set(http::field::content_type, "application/vnd.git-lfs+json");
+    res.keep_alive(body_parser.get().keep_alive());
+    res.body() = R"({})";
+    res.prepare_payload();
+    co_await http::async_write(stream, res, ioc_awaitable[ec]);
+
+    if (ec)
+    {
+        XLOG_ERR << "LFS Session: " << connection_id
+            << ", upload write response error: " << ec.message();
+    }
+
+    co_return;
+}
+
+//////////////////////////////////////////////////////////////////////////
 // LFS 文件传输处理 (PUT/GET /files/{oid})
 //////////////////////////////////////////////////////////////////////////
 
