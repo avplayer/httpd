@@ -19,6 +19,9 @@
 #include <fstream>
 #include <cstdint>
 #include <vector>
+#include <memory>
+
+#include <openssl/evp.h>
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/core/buffers_to_string.hpp>
@@ -103,6 +106,12 @@ inline json::value build_batch_response(
 
         if (operation == "upload")
         {
+            // 如果文件已存在，则跳过，避免重复上传.
+            fs::path file_path = storage_dir / oid;
+            boost::system::error_code ec;
+            if (fs::exists(file_path, ec))
+                continue;
+
             json::object upload_action;
             upload_action["href"] = server_url + "/files/" + oid;
             json::object actions;
@@ -329,13 +338,10 @@ inline awaitable_void lfs_file_transfer_session(
             co_return;
         }
 
-        // 读取请求体并写入文件.
-        {
-            std::string upload_data = beast::buffers_to_string(req.body().data());
-            file_stream.write(upload_data.data(), upload_data.size());
-        }
-
-        if (!file_stream)
+        // 初始化 SHA-256 哈希计算上下文.
+        std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> md_ctx(
+            EVP_MD_CTX_new(), EVP_MD_CTX_free);
+        if (!md_ctx || EVP_DigestInit_ex(md_ctx.get(), EVP_sha256(), nullptr) != 1)
         {
             http::response<http::string_body> res{
                 http::status::internal_server_error,
@@ -344,7 +350,76 @@ inline awaitable_void lfs_file_transfer_session(
             res.set(http::field::server, "httpd/1.0");
             res.set(http::field::content_type, "application/vnd.git-lfs+json");
             res.keep_alive(req.keep_alive());
-            res.body() = R"({"message":"Upload Failed"})";
+            res.body() = R"({"message":"Internal Server Error"})";
+            res.prepare_payload();
+
+            co_await http::async_write(stream, res, ioc_awaitable[ec]);
+            co_return;
+        }
+
+        // 读取请求体并写入文件，同时计算 SHA-256 哈希.
+        {
+            std::string upload_data = beast::buffers_to_string(req.body().data());
+            file_stream.write(upload_data.data(), upload_data.size());
+
+            if (!file_stream)
+            {
+                http::response<http::string_body> res{
+                    http::status::internal_server_error,
+                    req.version()
+                };
+                res.set(http::field::server, "httpd/1.0");
+                res.set(http::field::content_type, "application/vnd.git-lfs+json");
+                res.keep_alive(req.keep_alive());
+                res.body() = R"({"message":"Upload Failed"})";
+                res.prepare_payload();
+
+                co_await http::async_write(stream, res, ioc_awaitable[ec]);
+                co_return;
+            }
+
+            EVP_DigestUpdate(md_ctx.get(), upload_data.data(), upload_data.size());
+        }
+
+        // 完成哈希计算.
+        unsigned char hash[EVP_MAX_MD_SIZE];
+        unsigned int hash_len = 0;
+        EVP_DigestFinal_ex(md_ctx.get(), hash, &hash_len);
+
+        // 将哈希值转换为十六进制字符串.
+        static const char hex_chars[] = "0123456789abcdef";
+        std::string computed_oid;
+        computed_oid.reserve(64);
+        for (unsigned int i = 0; i < hash_len; ++i)
+        {
+            computed_oid += hex_chars[(hash[i] >> 4) & 0x0F];
+            computed_oid += hex_chars[hash[i] & 0x0F];
+        }
+
+        // 校验哈希是否与请求中的 OID 一致.
+        if (computed_oid != oid)
+        {
+            file_stream.close();
+            boost::system::error_code remove_ec;
+            fs::remove(file_path, remove_ec);
+            if (remove_ec)
+            {
+                XLOG_ERR << "LFS Session: " << connection_id
+                    << ", failed to remove mismatched file: " << remove_ec.message();
+            }
+
+            XLOG_ERR << "LFS Session: " << connection_id
+                << ", SHA-256 mismatch: expected " << oid
+                << ", computed " << computed_oid;
+
+            http::response<http::string_body> res{
+                http::status::bad_request,
+                req.version()
+            };
+            res.set(http::field::server, "httpd/1.0");
+            res.set(http::field::content_type, "application/vnd.git-lfs+json");
+            res.keep_alive(req.keep_alive());
+            res.body() = R"({"message":"SHA256 mismatch: OID does not match content"})";
             res.prepare_payload();
 
             co_await http::async_write(stream, res, ioc_awaitable[ec]);
