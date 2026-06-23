@@ -262,7 +262,7 @@ inline void collect_certificate_files(
     if (ec)
     {
         XLOG_ERR << "Cannot open cert directory: "
-            << cert_dir << ", err: " << ec.message();
+            << cert_dir.string() << ", err: " << ec.message();
         return;
     }
 
@@ -1036,7 +1036,7 @@ inline awaitable_void dir_session(
 	int64_t connection_id,
 	fs::path dir)
 {
-	XLOG_DBG << "Session: " << connection_id << ", path: " << dir;
+	XLOG_DBG << "Session: " << connection_id << ", path: " << dir.string();
 
 	boost::system::error_code ec;
 
@@ -1046,7 +1046,7 @@ inline awaitable_void dir_session(
 	if (!scan_directory_entries(dir, dirs, files, ec))
 	{
 		XLOG_WARN << "Session: " << connection_id
-			<< ", path: " << dir << ", err: " << ec.message();
+			<< ", path: " << dir.string() << ", err: " << ec.message();
 
 		co_await error_session(stream, req, connection_id,
 			http::status::internal_server_error, "Internal server error");
@@ -1118,7 +1118,7 @@ inline awaitable_void dir_session_json(
 	XLOG_DBG << "Session: "
 		<< connection_id
 		<< ", path: "
-		<< dir
+		<< dir.string()
 		<< ", json listing";
 
 	boost::system::error_code ec;
@@ -1127,7 +1127,7 @@ inline awaitable_void dir_session_json(
 	if (ec)
 	{
 		XLOG_WARN << "Session: " << connection_id
-			<< ", path: " << dir << ", err: " << ec.message();
+			<< ", path: " << dir.string() << ", err: " << ec.message();
 
 		co_await error_session(stream, req, connection_id,
 			http::status::internal_server_error, "Internal server error");
@@ -1279,7 +1279,7 @@ inline awaitable_void file_session(
 	int64_t connection_id,
 	fs::path file)
 {
-	XLOG_DBG << "Session: " << connection_id << ", file: " << file;
+	XLOG_DBG << "Session: " << connection_id << ", file: " << file.string();
 
 	if (req.method() != http::verb::get)
 	{
@@ -1346,7 +1346,7 @@ inline awaitable_void file_session(
 	res.content_length(content_length);
 
 	XLOG_INFO << "Session: " << connection_id
-		<< ", serving file: " << file.filename()
+		<< ", serving file: " << file.filename().string()
 		<< ", size: " << strutil::add_suffix(static_cast<float>(content_length));
 
 	response_serializer sr(res);
@@ -1777,23 +1777,23 @@ inline awaitable_void ssl_listen(
 inline bool setup_ssl_context(const std::string& httpd_ssl_cert_dir)
 {
     auto cert_dir = fs::path(httpd_ssl_cert_dir).make_preferred();
-    XLOG_INFO << "Scanning SSL certificate directory: " << cert_dir;
+    XLOG_INFO << "Scanning SSL certificate directory: " << cert_dir.string();
 
     if (!fs::is_directory(cert_dir))
     {
-        XLOG_ERR << "SSL cert directory not found: " << cert_dir;
+        XLOG_ERR << "SSL cert directory not found: " << cert_dir.string();
         return false;
     }
 
     auto certs = scan_cert_directory(cert_dir);
     if (certs.empty())
     {
-        XLOG_ERR << "No valid SSL certificates found in: " << cert_dir;
+        XLOG_ERR << "No valid SSL certificates found in: " << cert_dir.string();
         return false;
     }
 
     XLOG_INFO << "Found " << certs.size()
-        << " certificate(s) in: " << cert_dir;
+        << " certificate(s) in: " << cert_dir.string();
 
     global_ssl_ctx = std::make_shared<ssl::context>(
         ssl::context::tls_server);
@@ -1807,7 +1807,7 @@ inline bool setup_ssl_context(const std::string& httpd_ssl_cert_dir)
         if (ec)
         {
             XLOG_ERR << "Failed to load cert: "
-                << info.cert_file << ", err: " << ec.message();
+                << info.cert_file.string() << ", err: " << ec.message();
             continue;
         }
 
@@ -1817,7 +1817,7 @@ inline bool setup_ssl_context(const std::string& httpd_ssl_cert_dir)
         if (ec)
         {
             XLOG_ERR << "Failed to load key: "
-                << info.key_file << ", err: " << ec.message();
+                << info.key_file.string() << ", err: " << ec.message();
             continue;
         }
 
@@ -1941,7 +1941,7 @@ int main(int argc, char** argv)
 	if (vm.count("path") && !httpd_doc.empty() && httpd_doc != "-")
 	{
 		global_path = fs::canonical(fs::path(httpd_doc).make_preferred());
-		XLOG_INFO << "Document root: " << global_path;
+		XLOG_INFO << "Document root: " << global_path.string();
 	}
 
 	if (vm.count("log-dir"))
@@ -1978,7 +1978,7 @@ int main(int argc, char** argv)
 				<< global_lfs_storage_dir << ", err: " << lfs_ec.message();
 			return EXIT_FAILURE;
 		}
-		XLOG_INFO << "Git LFS storage directory: " << global_lfs_storage_dir;
+		XLOG_INFO << "Git LFS storage directory: " << global_lfs_storage_dir.string();
 	}
 
 	XLOG_INFO << "httpd server started, entering event loop...";

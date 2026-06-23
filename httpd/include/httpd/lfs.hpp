@@ -413,7 +413,7 @@ inline awaitable_void lfs_file_upload_session(
     fs::path file_path = global_lfs_storage_dir / std::string(oid);
 
     XLOG_DBG << "LFS Session: " << connection_id
-        << ", uploading file: " << file_path;
+        << ", uploading file: " << file_path.string();
 
     boost::system::error_code ec;
     fs::create_directories(global_lfs_storage_dir, ec);
