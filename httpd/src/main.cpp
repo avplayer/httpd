@@ -1531,7 +1531,7 @@ inline awaitable_void session(Stream stream)
 
 					dynamic_request req = parser.release();
 
-					co_await lfs_file_transfer_session(
+					co_await lfs_file_download_session(
 						stream, req, connection_id, oid);
 					co_return;
 				}
