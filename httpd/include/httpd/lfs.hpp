@@ -384,7 +384,6 @@ inline awaitable_string stream_upload_to_file(
             fs::remove(file_path, remove_ec);
             co_return "";
         }
-        break;
     }
 
     co_return sha256_to_hex_string(md_ctx);
