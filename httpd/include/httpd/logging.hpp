@@ -230,9 +230,9 @@ namespace xlogger {
 #endif
 
 #ifdef DISABLE_WRITE_LOGGING
-#   define WRITE_LOGGING(false)
+#   define WRITE_LOGGING (false)
 #else
-#   define WRITE_LOGGING(true)
+#   define WRITE_LOGGING (true)
 #endif
 
 inline bool global_logging___ = true;
