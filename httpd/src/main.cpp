@@ -1917,6 +1917,8 @@ int main(int argc, char** argv)
 	// 初始化日志系统，可指定日志输出目录.
 	if (vm.count("log-dir"))
 		xlogger::init_logging(httpd_log_dir);
+	else
+		xlogger::toggle_write_logging(false);
 
 	// SSL 证书目录处理.
 	if (vm.count("ssl-cert-dir") && !setup_ssl_context(httpd_ssl_cert_dir))
