@@ -118,43 +118,60 @@
 # endif
 #endif
 
-#if defined(__cpp_lib_format)
-# include <format>
-#endif
+#if defined(FORCE_USE_FMT_FORMAT) || \
+	!defined(__cpp_lib_format) || \
+	(_LIBCPP_VERSION < 170000) || \
+	defined(__ANDROID__)
 
-#if !defined(__cpp_lib_format)
 # ifdef _MSC_VER
 #  pragma warning(push)
 #  pragma warning(disable: 4244 4127)
 # endif // _MSC_VER
 
-#if (_LIBCPP_VERSION < 170000) || defined(__ANDROID__)
-
 # include <fmt/ostream.h>
 # include <fmt/printf.h>
 # include <fmt/format.h>
 
-namespace std {
+namespace xlogger {
 	using ::fmt::format;
 	using ::fmt::format_to;
 	using ::fmt::vformat;
 	using ::fmt::make_format_args;
 }
 
-#endif // _LIBCPP_VERSION
-
 # ifdef _MSC_VER
 #  pragma warning(pop)
 # endif
+
+#elif defined(__cpp_lib_format)
+# include <format>
+namespace xlogger {
+	using ::std::format;
+	using ::std::format_to;
+	using ::std::vformat;
+	using ::std::make_format_args;
+}
+#else
+# error "format not found"
 #endif
 
 #include <version>
 #include <codecvt>
 #include <clocale>
-#include <fstream>
+#include <sstream>
 #include <chrono>
 #include <mutex>
 #include <memory>
+
+#if defined(_WIN32) || defined(WIN32)
+# include <io.h>
+# include <fcntl.h>
+# include <sys/stat.h>
+#else
+# include <fcntl.h>
+# include <unistd.h>
+# include <sys/stat.h>
+#endif
 
 #if defined (__cpp_lib_polymorphic_allocator)
 # include <memory_resource>
@@ -237,6 +254,7 @@ namespace xlogger {
 
 inline bool global_logging___ = true;
 inline bool global_console_logging___ = LOG2CONSOLE;
+inline bool global_console_logging_color___ = true;
 inline bool global_write_logging___ = WRITE_LOGGING;
 inline int64_t global_logfile_size___ = DEFAULT_LOG_MAXFILE_SIZE;
 
@@ -663,7 +681,7 @@ namespace logger_aux__ {
 		if (!buffer)
 			return &ptm;
 
-		std::format_to(buffer,
+		xlogger::format_to(buffer,
 			"{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03}",
 			ptm.tm_year + 1900, ptm.tm_mon + 1, ptm.tm_mday,
 			ptm.tm_hour, ptm.tm_min, ptm.tm_sec, (int)(time % 1000)
@@ -704,12 +722,12 @@ public:
 	~auto_logger_file__()
 	{
 		m_last_time = 0;
+		close_file();
 	}
-
-	typedef std::shared_ptr<std::ofstream> ofstream_ptr;
 
 	inline void open(const char* path)
 	{
+		close_file();
 		m_log_path = path;
 
 		if (!global_logging___)
@@ -748,14 +766,11 @@ public:
 
 			auto ptm = logger_aux__::time_to_string(nullptr, m_last_time);
 
-			m_ofstream->close();
-			m_ofstream.reset();
-
 			auto logpath = fs::path(m_log_path.parent_path());
 			fs::path filename;
 
 			if (global_logfile_size___ <= 0) {
-				auto logfile = std::format("{:04d}{:02d}{:02d}-{:02d}.log",
+				auto logfile = xlogger::format("{:04d}{:02d}{:02d}-{:02d}.log",
 					ptm->tm_year + 1900,
 					ptm->tm_mon + 1,
 					ptm->tm_mday,
@@ -763,7 +778,7 @@ public:
 				filename = logpath / logfile;
 			} else {
 				auto utc_time = std::mktime(ptm);
-				auto logfile = std::format("{:04d}{:02d}{:02d}-{}.log",
+				auto logfile = xlogger::format("{:04d}{:02d}{:02d}-{}.log",
 					ptm->tm_year + 1900,
 					ptm->tm_mon + 1,
 					ptm->tm_mday,
@@ -773,11 +788,20 @@ public:
 
 			m_last_time = time;
 
-			error_code ec;
-			if (!fs::copy_file(m_log_path, filename, ec))
-				break;
+			// 1. 关闭当前写入句柄，确保重命名不被句柄占用。
+			close_file();
 
-			fs::resize_file(m_log_path, 0, ec);
+			// 2. 将 application.log 原子重命名为副本文件名（用于压缩/保留）。
+			error_code ec;
+			fs::rename(m_log_path, filename, ec);
+
+			// 3. 重命名失败时（如目标文件被占用），移除 application.log
+			//    避免残留旧文件，随后会重新创建。
+			if (ec)
+				fs::remove(m_log_path, ec);
+
+			// 4. 副本已交由后台线程压缩，新日志将从重新打开的
+			//    application.log 开始写入。
 			m_log_size = 0;
 
 #ifdef LOGGING_ENABLE_COMPRESS_LOGS
@@ -787,6 +811,8 @@ public:
 					error_code ignore_ec;
 					std::mutex& m = xlogging_compress__::compress_lock();
 					std::lock_guard lock(m);
+					if (!fs::exists(fn, ignore_ec))
+						return;
 					if (!xlogging_compress__::do_compress_gz(fn))
 					{
 						auto file = fn + xlogging_compress__::LOGGING_GZ_SUFFIX;
@@ -805,24 +831,65 @@ public:
 			break;
 		}
 
-		if (!m_ofstream) {
-			m_ofstream.reset(new std::ofstream);
-			auto& ofstream = *m_ofstream;
-			ofstream.open(m_log_path.string().c_str(),
-				std::ios_base::out | std::ios_base::app);
-			ofstream.sync_with_stdio(false);
-		}
+		// 以 O_APPEND 标志打开日志文件，保证追加写入（跨进程/多次打开均安全）。
+		if (m_fd < 0)
+			open_file();
 
-		if (m_ofstream->is_open()) {
+		if (m_fd >= 0) {
 			m_log_size += static_cast<int64_t>(size);
-			m_ofstream->write(str, size);
-			m_ofstream->flush();
+			write_file(str, size);
 		}
 	}
 
 private:
+	inline void close_file() noexcept
+	{
+		if (m_fd < 0)
+			return;
+
+#ifdef WIN32
+		::_close(m_fd);
+#else
+		::close(m_fd);
+#endif
+		m_fd = -1;
+	}
+
+	inline bool open_file()
+	{
+		if (m_fd >= 0)
+			return true;
+
+		error_code ignore_ec;
+		if (!fs::exists(m_log_path, ignore_ec) && global_write_logging___)
+			fs::create_directories(
+				m_log_path.parent_path(), ignore_ec);
+
+#ifdef WIN32
+		m_fd = ::_open(m_log_path.string().c_str(),
+			_O_WRONLY | _O_CREAT | _O_APPEND,
+			_S_IREAD | _S_IWRITE);
+#else
+		m_fd = ::open(m_log_path.string().c_str(),
+			O_WRONLY | O_CREAT | O_APPEND, 0644);
+#endif
+		return m_fd >= 0;
+	}
+
+	inline void write_file(const char* str, std::streamsize size)
+	{
+		if (size <= 0)
+			return;
+
+#ifdef WIN32
+		::_write(m_fd, str, static_cast<unsigned int>(size));
+#else
+		::write(m_fd, str, static_cast<size_t>(size));
+#endif
+	}
+
 	fs::path m_log_path{"./logs"};
-	ofstream_ptr m_ofstream;
+	int m_fd{ -1 };
 	int64_t m_last_time{ -1 };
 	int64_t m_log_size{ 0 };
 };
@@ -891,36 +958,46 @@ inline void logger_output_console__([[maybe_unused]] const logger_level__& level
 #if !defined(DISABLE_XLOGGER_TO_CONSOLE)
 	HANDLE handle_stdout = GetStdHandle(STD_OUTPUT_HANDLE);
 	CONSOLE_SCREEN_BUFFER_INFO csbi;
-	GetConsoleScreenBufferInfo(handle_stdout, &csbi);
 
-	switch (level)
+	if (global_console_logging_color___)
 	{
-	case _logger_info_id__:
-		SetConsoleTextAttribute(handle_stdout,
-			FOREGROUND_GREEN);
-		break;
-	case _logger_debug_id__:
-		SetConsoleTextAttribute(handle_stdout,
-			FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-		break;
-	case _logger_warn_id__:
-		SetConsoleTextAttribute(handle_stdout,
-			FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
-		break;
-	case _logger_error_id__:
-		SetConsoleTextAttribute(handle_stdout,
-			FOREGROUND_RED | FOREGROUND_INTENSITY);
-		break;
+		GetConsoleScreenBufferInfo(handle_stdout, &csbi);
+		switch (level)
+		{
+		case _logger_info_id__:
+			SetConsoleTextAttribute(handle_stdout,
+				FOREGROUND_GREEN);
+			break;
+		case _logger_debug_id__:
+			SetConsoleTextAttribute(handle_stdout,
+				FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+			break;
+		case _logger_warn_id__:
+			SetConsoleTextAttribute(handle_stdout,
+				FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_INTENSITY);
+			break;
+		case _logger_error_id__:
+			SetConsoleTextAttribute(handle_stdout,
+				FOREGROUND_RED | FOREGROUND_INTENSITY);
+			break;
+		}
 	}
 
 	WriteConsoleW(handle_stdout,
 		title.data(), (DWORD)title.size(), nullptr, nullptr);
-	SetConsoleTextAttribute(handle_stdout,
-		FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE);
+	if (global_console_logging_color___)
+	{
+		SetConsoleTextAttribute(handle_stdout,
+			FOREGROUND_GREEN | FOREGROUND_RED | FOREGROUND_BLUE);
+	}
 
 	WriteConsoleW(handle_stdout,
 		msg.data(), (DWORD)msg.size(), nullptr, nullptr);
-	SetConsoleTextAttribute(handle_stdout, csbi.wAttributes);
+
+	if (global_console_logging_color___)
+	{
+		SetConsoleTextAttribute(handle_stdout, csbi.wAttributes);
+	}
 #endif
 
 #if !defined(DISABLE_XLOGGER_TO_DBGVIEW)
@@ -930,28 +1007,35 @@ inline void logger_output_console__([[maybe_unused]] const logger_level__& level
 #elif !defined(DISABLE_XLOGGER_TO_CONSOLE)
 	std::string out;
 
-	switch (level)
+	if (global_console_logging_color___)
 	{
-	case _logger_info_id__:
-		std::format_to(std::back_inserter(out),
-			"\033[32m{}\033[0m{}", prefix, message);
-		break;
-	case _logger_debug_id__:
-		std::format_to(std::back_inserter(out),
-			"\033[1;32m{}\033[0m{}", prefix, message);
-		break;
-	case _logger_warn_id__:
-		std::format_to(std::back_inserter(out),
-			"\033[1;33m{}\033[0m{}", prefix, message);
-		break;
-	case _logger_error_id__:
-		std::format_to(std::back_inserter(out),
-			"\033[1;31m{}\033[0m{}", prefix, message);
-		break;
-	case _logger_file_id__:
-		// std::format_to(std::back_inserter(out),
-		//	"\033[1;34m{}\033[0m{}", prefix, message);
-		break;
+		switch (level)
+		{
+		case _logger_info_id__:
+			xlogger::format_to(std::back_inserter(out),
+				"\033[32m{}\033[0m{}", prefix, message);
+			break;
+		case _logger_debug_id__:
+			xlogger::format_to(std::back_inserter(out),
+				"\033[1;32m{}\033[0m{}", prefix, message);
+			break;
+		case _logger_warn_id__:
+			xlogger::format_to(std::back_inserter(out),
+				"\033[1;33m{}\033[0m{}", prefix, message);
+			break;
+		case _logger_error_id__:
+			xlogger::format_to(std::back_inserter(out),
+				"\033[1;31m{}\033[0m{}", prefix, message);
+			break;
+		case _logger_file_id__:
+			// xlogger::format_to(std::back_inserter(out),
+			//	"\033[1;34m{}\033[0m{}", prefix, message);
+			break;
+		}
+	}
+	else
+	{
+		xlogger::format_to(std::back_inserter(out), "{}{}", prefix, message);
 	}
 
 	std::cout << out;
@@ -1267,6 +1351,11 @@ inline void toggle_console_logging(bool enable) noexcept
 	global_console_logging___ = enable;
 }
 
+inline void toggle_console_logging_color(bool enable) noexcept
+{
+	global_console_logging_color___ = enable;
+}
+
 inline void set_logfile_maxsize(int64_t size) noexcept
 {
 	// log file size must be greater than 10 MiB.
@@ -1343,8 +1432,8 @@ public:
 	{
 		if (!global_logging___)
 			return *this;
-		out_ += std::vformat(fmt,
-			std::make_format_args(args...));
+		out_ += xlogger::vformat(fmt,
+			xlogger::make_format_args(args...));
 		return *this;
 	}
 
@@ -1353,7 +1442,7 @@ public:
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}", v);
+		xlogger::format_to(std::back_inserter(out_), "{}", v);
 		return *this;
 	}
 
@@ -1541,49 +1630,49 @@ public:
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{:#010x}", (std::size_t)v);
+		xlogger::format_to(std::back_inserter(out_), "{:#010x}", (std::size_t)v);
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::nanoseconds& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}ns", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}ns", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::microseconds& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}us", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}us", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::milliseconds& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}ms", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}ms", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::seconds& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}s", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}s", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::minutes& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}min", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}min", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::hours& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}h", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}h", v.count());
 		return *this;
 	}
 
@@ -1593,10 +1682,10 @@ public:
 		if (!global_logging___)
 			return *this;
 		if (v.address().is_v6())
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				"[{}]:{}", v.address().to_string(), v.port());
 		else
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				"{}:{}", v.address().to_string(), v.port());
 		return *this;
 	}
@@ -1605,10 +1694,10 @@ public:
 		if (!global_logging___)
 			return *this;
 		if (v.address().is_v6())
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				"[{}]:{}", v.address().to_string(), v.port());
 		else
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				"{}:{}", v.address().to_string(), v.port());
 		return *this;
 	}
@@ -1619,28 +1708,28 @@ public:
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}d", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}d", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::weeks& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}weeks", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}weeks", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::years& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}years", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}years", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::months& v)
 	{
 		if (!global_logging___)
 			return *this;
-		std::format_to(std::back_inserter(out_), "{}months", v.count());
+		xlogger::format_to(std::back_inserter(out_), "{}months", v.count());
 		return *this;
 	}
 	inline logger___& operator<<(const std::chrono::weekday& v)
@@ -1674,10 +1763,10 @@ public:
 		if (!global_logging___)
 			return *this;
 #if 0
-		std::format_to(std::back_inserter(out_),
+		xlogger::format_to(std::back_inserter(out_),
 			"{:04}", static_cast<int>(v));
 #else
-		std::format_to(std::back_inserter(out_),
+		xlogger::format_to(std::back_inserter(out_),
 			"{:04}{}", static_cast<int>(v),
 				logger_aux__::from_u8string(u8"年"));
 #endif
@@ -1724,10 +1813,10 @@ public:
 		if (!global_logging___)
 			return *this;
 #ifndef __cpp_lib_char8_t
-		std::format_to(std::back_inserter(out_),
+		xlogger::format_to(std::back_inserter(out_),
 			"{:02}", static_cast<int>(v));
 #else
-		std::format_to(std::back_inserter(out_),
+		xlogger::format_to(std::back_inserter(out_),
 			"{:02}{}", static_cast<unsigned int>(v),
 				logger_aux__::from_u8string(u8"日"));
 #endif
@@ -1765,23 +1854,23 @@ public:
 			auto date = p.date().year_month_day();
 			auto time = p.time_of_day();
 
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				"{:04}", static_cast<unsigned int>(date.year));
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				"-{:02}", date.month.as_number());
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				"-{:02}", date.day.as_number());
 
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				" {:02}", time.hours());
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				":{:02}", time.minutes());
-			std::format_to(std::back_inserter(out_),
+			xlogger::format_to(std::back_inserter(out_),
 				":{:02}", time.seconds());
 
 			auto ms = time.total_milliseconds() % 1000;		// milliseconds.
 			if (ms != 0)
-				std::format_to(std::back_inserter(out_),
+				xlogger::format_to(std::back_inserter(out_),
 					".{:03}", ms);
 		}
 		else
