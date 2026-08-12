@@ -1836,20 +1836,32 @@ public:
 	{
 		if (!global_logging___)
 			return *this;
+#ifdef _WIN32
 		auto ret = logger_aux__::utf16_utf8(p.wstring());
 		if (ret)
 			return strcat_impl(*ret);
 		return strcat_impl(p.string());
+#else
+		// On POSIX, path::string() is already UTF-8; the wstring()
+		// round-trip relies on a locale conversion and garbles paths.
+		return strcat_impl(p.string());
+#endif
 	}
 #ifndef LOGGING_DISABLE_BOOST_FILESYSTEM
 	inline logger___& operator<<(const boost::filesystem::path& p) noexcept
 	{
 		if (!global_logging___)
 			return *this;
+#ifdef _WIN32
 		auto ret = logger_aux__::utf16_utf8(p.wstring());
 		if (ret)
 			return strcat_impl(*ret);
 		return strcat_impl(p.string());
+#else
+		// On POSIX, path::string() is already UTF-8; the wstring()
+		// round-trip relies on a locale conversion and garbles paths.
+		return strcat_impl(p.string());
+#endif
 	}
 #endif
 #ifndef LOGGING_DISABLE_BOOST_POSIX_TIME
