@@ -1318,6 +1318,9 @@ namespace strutil
 				if (n > 0xffff)
 					return false;
 
+				if (parts >= 8)
+					return false;
+
 				value[parts] = static_cast<uint16_t>(n);
 				parts++;
 				start = b;
