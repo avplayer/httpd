@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <ios>
 #include <string>
 #include <string_view>
 #include <version>
@@ -90,6 +91,9 @@ inline bool parse_endpoint_string(std::string_view str,
 	ipv6only = false;
 
 	auto address_string = string_trim(str);
+	if (address_string.empty())
+		return false;
+
 	auto it = address_string.begin();
 
 	bool is_ipv6_address = *it == '[';
@@ -105,6 +109,8 @@ inline bool parse_endpoint_string(std::string_view str,
 
 		std::advance(it, host_end - it);
 		it++;
+		if (it == address_string.end())
+			return false;
 	}
 	else
 	{
