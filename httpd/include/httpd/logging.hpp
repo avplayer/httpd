@@ -1307,7 +1307,9 @@ static LONG WINAPI unexpectedExceptionHandling(EXCEPTION_POINTERS* e)
 
 inline void signal_handler(int)
 {
-	global_logger_obj___.reset();
+	// 只置位停止标志，避免在信号处理函数中析构（join）日志线程.
+	if (auto obj = global_logger_obj___)
+		obj->stop();
 }
 
 inline void init_logging(const std::string& path = "")
@@ -1915,7 +1917,6 @@ public:
 // API for logging.
 namespace xlogger {
 	inline void init_logging(const std::string& path/* = ""*/);
-	inline std::string log_path();
 	inline std::string log_path();
 	inline void shutdown_logging();
 	inline void turnoff_logging() noexcept;
