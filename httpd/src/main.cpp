@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <chrono>
+#include <thread>
 #include <tuple>
 #include <type_traits>
 
@@ -1783,7 +1784,16 @@ inline awaitable_void listen(tcp_acceptor& acceptor)
 			co_await acceptor.async_accept(
 				ioc_awaitable[ec]);
 		if (ec)
-			break;
+		{
+			// 瞬态错误（如 EMFILE）不应终止服务，仅在 acceptor 被关闭/取消时退出.
+			if (ec == net::error::operation_aborted ||
+				ec == net::error::bad_descriptor)
+				break;
+			XLOG_WARN << "Accept error: " << ec.message();
+			// 短暂退避，避免在持续错误下空转.
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			continue;
+		}
 
 		{
 			net::socket_base::keep_alive option(true);
@@ -1824,7 +1834,16 @@ inline awaitable_void ssl_listen(
 			co_await acceptor.async_accept(
 				ioc_awaitable[ec]);
 		if (ec)
-			break;
+		{
+			// 瞬态错误（如 EMFILE）不应终止服务，仅在 acceptor 被关闭/取消时退出.
+			if (ec == net::error::operation_aborted ||
+				ec == net::error::bad_descriptor)
+				break;
+			XLOG_WARN << "Accept error: " << ec.message();
+			// 短暂退避，避免在持续错误下空转.
+			std::this_thread::sleep_for(std::chrono::milliseconds(10));
+			continue;
+		}
 
 		{
 			net::socket_base::keep_alive option(true);
