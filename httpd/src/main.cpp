@@ -1380,6 +1380,13 @@ inline awaitable_void file_session(
 		std::ios_base::binary |
 		std::ios_base::in);
 
+	if (!file_stream.is_open())
+	{
+		co_await error_session(stream, req, connection_id,
+			http::status::internal_server_error, "Internal server error");
+		co_return;
+	}
+
 	auto range = get_ranges(req["Range"]);
 	http::status st = range.empty() ? http::status::ok
 	                                : http::status::partial_content;
