@@ -488,7 +488,6 @@ const static std::map<std::string, std::string> global_mimes =
 		{ ".ppt", "application/vnd.ms-powerpoint" },
 		{ ".zip", "application/zip" },
 		{ ".xz", "application/x-xz" },
-		{ ".xml", "application/xml" },
 		{ ".webm", "video/webm" },
 		{ ".weba", "audio/webm" },
 		{ ".m3u8", "application/vnd.apple.mpegurl" }
@@ -649,7 +648,8 @@ inline awaitable_void error_session(
 		req.version()
 	};
 
-	res.set(http::field::server, "httpd/1.0");
+	res.set(http::field::server, version_string);
+	res.set(http::field::date, server_date_string());
 	res.set(http::field::content_type, "text/html");
 	res.keep_alive(req.keep_alive());
 	res.body() = message;
@@ -1320,8 +1320,10 @@ inline awaitable_void file_session(
 	                                : http::status::partial_content;
 
 	buffer_response res{ st, req.version() };
-	res.set(http::field::server, "httpd/1.0");
+	res.set(http::field::server, version_string);
+	res.set(http::field::date, server_date_string());
 	res.set(http::field::content_type, select_content_type(file));
+	res.set(http::field::accept_ranges, "bytes");
 
 	if (!range.empty())
 	{
@@ -1341,10 +1343,6 @@ inline awaitable_void file_session(
 
 		XLOG_DBG << "Session: " << connection_id
 			<< ", range request: " << content_range;
-	}
-	else
-	{
-		res.set(http::field::accept_ranges, "bytes");
 	}
 
 	res.keep_alive(req.keep_alive());
