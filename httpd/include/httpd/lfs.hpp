@@ -270,7 +270,7 @@ inline std::string build_lfs_server_url(
     if (host_it != req.end())
         url += host_it->value();
     else
-        url += "localhost:8080";
+        url += is_ssl ? "localhost:443" : "localhost:80";
     return url;
 }
 
