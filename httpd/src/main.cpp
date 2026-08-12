@@ -1298,16 +1298,25 @@ inline range_info resolve_range(
     {
         if (r.first < 0)
         {
+            // Suffix range, e.g. "bytes=-500".
             r.first = static_cast<int64_t>(content_length) + r.first;
             r.second = static_cast<int64_t>(content_length) - 1;
         }
-        else if (r.first >= 0)
+        else
         {
+            // Open-ended range, e.g. "bytes=500-".
             r.second = static_cast<int64_t>(content_length) - 1;
         }
     }
 
-    if (r.second < r.first && r.second >= 0)
+    // Clamp a suffix range that extends past the beginning of the file.
+    if (r.first < 0)
+        r.first = 0;
+
+    // Reject ranges on empty files, start at/beyond EOF, or reversed ranges.
+    if (static_cast<int64_t>(content_length) <= 0 ||
+        r.second < r.first ||
+        r.first >= static_cast<int64_t>(content_length))
     {
         XLOG_WARN << "Session: " << connection_id
             << ", invalid range: " << r.first << "-" << r.second;
