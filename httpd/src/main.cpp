@@ -1994,9 +1994,25 @@ inline bool parse_listen_address(
     if (!parse_endpoint_string(httpd_listen, host, port, v6only))
         return false;
 
-    endpoint = tcp::endpoint(
-        net::ip::make_address(host),
-        static_cast<unsigned short>(std::stoi(port)));
+    // make_address throws for non-IP hostnames; use the error_code overload.
+    boost::system::error_code ec;
+    auto addr = net::ip::make_address(host, ec);
+    if (ec)
+        return false;
+
+    long port_number = 0;
+    try
+    {
+        port_number = std::stol(port);
+    }
+    catch (const std::exception&)
+    {
+        return false;
+    }
+    if (port_number <= 0 || port_number > 65535)
+        return false;
+
+    endpoint = tcp::endpoint(addr, static_cast<unsigned short>(port_number));
     return true;
 }
 
