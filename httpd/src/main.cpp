@@ -33,6 +33,7 @@ namespace http = beast::http;
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/ip/v6_only.hpp>
 namespace net = boost::asio;
 using net::ip::tcp;
 
@@ -1931,11 +1932,11 @@ inline bool setup_ssl_context(const std::string& httpd_ssl_cert_dir)
 // Parse the listen address string into host, port, and v6only flag.
 inline bool parse_listen_address(
     const std::string& httpd_listen,
-    tcp::endpoint& endpoint)
+    tcp::endpoint& endpoint,
+    bool& v6only)
 {
     std::string host;
     std::string port;
-    bool v6only;
 
     if (!parse_endpoint_string(httpd_listen, host, port, v6only))
         return false;
@@ -2017,16 +2018,36 @@ int main(int argc, char** argv)
 		return EXIT_FAILURE;
 
 	tcp::endpoint listen_endpoint;
+	bool v6only = false;
 
 	// 解析侦听端口.
-	if (!parse_listen_address(httpd_listen, listen_endpoint))
+	if (!parse_listen_address(httpd_listen, listen_endpoint, v6only))
 	{
 		std::cerr << "Cannot parse listen: " << httpd_listen << "\n";
 		return EXIT_FAILURE;
 	}
 
 	net::io_context ctx;
-	tcp_acceptor acceptor(ctx, listen_endpoint);
+	tcp_acceptor acceptor(ctx);
+
+	// 绑定前设置选项：地址复用、IPv6-only.
+	boost::system::error_code bind_ec;
+	acceptor.open(listen_endpoint.protocol(), bind_ec);
+	if (!bind_ec)
+		acceptor.set_option(net::socket_base::reuse_address(true), bind_ec);
+	if (!bind_ec && listen_endpoint.address().is_v6())
+		acceptor.set_option(net::ip::v6_only(v6only), bind_ec);
+	if (!bind_ec)
+		acceptor.bind(listen_endpoint, bind_ec);
+	if (!bind_ec)
+		acceptor.listen(net::socket_base::max_listen_connections, bind_ec);
+
+	if (bind_ec)
+	{
+		std::cerr << "Cannot bind listen: " << httpd_listen
+			<< ", err: " << bind_ec.message() << "\n";
+		return EXIT_FAILURE;
+	}
 
 	XLOG_INFO << "Starting httpd server..."
 		<< " listen=" << httpd_listen
