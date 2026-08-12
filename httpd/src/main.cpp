@@ -793,7 +793,7 @@ inline awaitable_void pipe_session(
 	co_return;
 }
 
-inline std::tuple<std::string, fs::path> file_last_wirte_time(const fs::path& file)
+inline std::tuple<std::string, fs::path> file_last_write_time(const fs::path& file)
 {
 	static auto loc_time = [](auto t) -> struct tm*
 	{
@@ -851,6 +851,28 @@ inline std::tuple<std::string, fs::path> file_last_wirte_time(const fs::path& fi
 	return { time_string, unc_path };
 }
 
+// Escape a string for safe insertion into an HTML document.
+inline std::wstring html_escape(std::wstring_view s)
+{
+	std::wstring out;
+	out.reserve(s.size());
+
+	for (wchar_t c : s)
+	{
+		switch (c)
+		{
+		case L'&':  out += L"&amp;";  break;
+		case L'<':  out += L"&lt;";   break;
+		case L'>':  out += L"&gt;";   break;
+		case L'"':  out += L"&quot;"; break;
+		case L'\'': out += L"&#39;";  break;
+		default:    out += c;         break;
+		}
+	}
+
+	return out;
+}
+
 // Truncate a display name to at most 50 characters, appending "..&gt;" when cut.
 inline std::wstring truncate_display_name(std::wstring name)
 {
@@ -869,12 +891,15 @@ inline std::wstring format_list_entry(
 	const std::wstring& time_string,
 	const std::wstring& size_string)
 {
-	int width = 50 - static_cast<int>(rpath.size());
+	auto display = truncate_display_name(rpath);
+
+	// Align columns by the displayed (truncated) name width.
+	int width = 50 - static_cast<int>(display.size());
 	if (width < 0) width = 0;
 
 	return fmt::format(body_fmt,
-		rpath,
-		truncate_display_name(rpath),
+		html_escape(rpath),
+		html_escape(display),
 		std::wstring(static_cast<std::size_t>(width), L' '),
 		time_string,
 		size_string);
@@ -889,7 +914,7 @@ inline std::vector<std::wstring> format_path_list(const std::set<fs::path>& path
 	{
 		const auto& item = *it;
 
-		auto [ftime, unc_path] = file_last_wirte_time(item);
+		auto [ftime, unc_path] = file_last_write_time(item);
 		std::wstring time_string = boost::nowide::widen(ftime);
 
 		if (fs::is_directory(item, ec))
@@ -967,6 +992,10 @@ inline std::string build_directory_listing_body(
     auto current_dir = dir.wstring();
     auto root_path = boost::replace_first_copy(
         current_dir, global_path.wstring(), L"");
+
+    // Show "/" for the document root itself.
+    if (root_path.empty())
+        root_path = L"/";
 
     std::wstring body = fmt::format(
         body_fmt, L"../", L"../", L"", L"", L"");
@@ -1064,6 +1093,35 @@ inline awaitable_void dir_session(
 	co_return;
 }
 
+// Escape a string for safe insertion into a JSON string literal.
+inline std::string json_escape(std::string_view s)
+{
+	std::string out;
+	out.reserve(s.size());
+
+	for (unsigned char c : s)
+	{
+		switch (c)
+		{
+		case '"':  out += "\\\""; break;
+		case '\\': out += "\\\\"; break;
+		case '\b': out += "\\b";  break;
+		case '\f': out += "\\f";  break;
+		case '\n': out += "\\n";  break;
+		case '\r': out += "\\r";  break;
+		case '\t': out += "\\t";  break;
+		default:
+			if (c < 0x20)
+				out += fmt::format("\\u{:04x}", c);
+			else
+				out += static_cast<char>(c);
+			break;
+		}
+	}
+
+	return out;
+}
+
 // Build a JSON array string from directory contents.
 inline std::string build_directory_listing_json(
     const fs::path& dir,
@@ -1086,22 +1144,22 @@ inline std::string build_directory_listing_json(
         first = false;
 
         auto filename = boost::nowide::narrow(item.filename().wstring());
-        auto [ftime, unc_path] = file_last_wirte_time(item);
+        auto [ftime, unc_path] = file_last_write_time(item);
 
         if (fs::is_directory(item, ec))
         {
             json += fmt::format(
                 R"(  {{"last_write_time": "{}", "filename": "{}", "is_dir": true}})",
-                ftime, filename);
+                ftime, json_escape(filename));
         }
         else
         {
-            auto sz = static_cast<float>(fs::file_size(item, ec));
+            auto sz = fs::file_size(item, ec);
             if (ec)
                 sz = 0;
             json += fmt::format(
                 R"(  {{"last_write_time": "{}", "filename": "{}", "is_dir": false, "filesize": {}}})",
-                ftime, filename, static_cast<int64_t>(sz));
+                ftime, json_escape(filename), static_cast<uintmax_t>(sz));
         }
     }
 
