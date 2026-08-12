@@ -1480,6 +1480,30 @@ inline bool path_is_contained_in(const fs::path& path, const fs::path& root)
     return sep == '/' || sep == fs::path::preferred_separator;
 }
 
+// Decode percent-encoded sequences only; '+' is left as-is because it is a
+// space in form encoding, not in URL paths.
+inline void unescape_path(std::string_view in, std::string& out)
+{
+    out.clear();
+    out.reserve(in.size());
+
+    for (std::size_t i = 0; i < in.size(); ++i)
+    {
+        if (in[i] == '%' && i + 2 < in.size())
+        {
+            auto hi = strutil::from_hex_char(in[i + 1]);
+            auto lo = strutil::from_hex_char(in[i + 2]);
+            if (hi >= 0 && lo >= 0)
+            {
+                out += static_cast<char>((hi << 4) | lo);
+                i += 2;
+                continue;
+            }
+        }
+        out += in[i];
+    }
+}
+
 // Resolve the request target against global_path and validate it
 // (path traversal protection). On success, returns the canonical path.
 // On failure, returns an empty path and sets ec.
@@ -1488,16 +1512,13 @@ inline fs::path resolve_request_path(
     boost::system::error_code& ec)
 {
     std::string unescaped;
-    strutil::unescape({target.data(), target.size()}, unescaped);
+    auto qpos = std::string_view(target).find('?');
+    unescape_path(std::string_view(target).substr(0, qpos), unescaped);
     if (!unescaped.empty() && unescaped[0] == '/')
         unescaped.erase(0, 1);
 
-    // Split off query string.
-    auto qpos = unescaped.find('?');
-    std::string path_part = unescaped.substr(0, qpos);
-
     auto current_path = fs::canonical(
-        global_path / boost::nowide::widen(path_part), ec).make_preferred();
+        global_path / boost::nowide::widen(unescaped), ec).make_preferred();
 
     if (ec || !path_is_contained_in(current_path, global_path))
     {
