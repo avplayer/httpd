@@ -1276,11 +1276,7 @@ namespace strutil
 		}
 
 		if (parts == 0 || parts > 4)
-		{
-			if (str.size() == 0)
-				return false;
 			return false;
-		}
 
 		if (max > 255 && last < max)
 			return false;
