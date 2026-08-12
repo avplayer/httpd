@@ -107,11 +107,14 @@ inline json::value build_batch_response(
 
         if (operation == "upload")
         {
-            // 如果文件已存在，则跳过，避免重复上传.
+            // 如果文件已存在，则返回对象但不带 actions，客户端会跳过上传.
             fs::path file_path = storage_dir / oid;
             boost::system::error_code ec;
             if (fs::exists(file_path, ec))
+            {
+                objects_arr.push_back(obj_resp);
                 continue;
+            }
 
             json::object upload_action;
             upload_action["href"] = server_url + "/files/" + oid;
@@ -446,7 +449,10 @@ inline awaitable_void lfs_file_upload_session(
 
     if (computed_oid.empty())
     {
-        // Error already sent by stream_upload_to_file.
+        // 部分写入的文件已在 stream_upload_to_file 中移除，这里需要响应客户端.
+        co_await lfs_error_response(stream, req,
+            http::status::internal_server_error,
+            R"({"message":"Internal Server Error"})");
         co_return;
     }
 

@@ -1592,9 +1592,15 @@ inline awaitable_void session(Stream stream)
 			if (target_str == "/objects/batch" && method == http::verb::post)
 			{
 				XLOG_INFO << "Session: " << connection_id << ", LFS batch request";
+				// 限制批处理请求体大小，防止内存耗尽.
+				parser.body_limit(16 * 1024 * 1024);
 				co_await http::async_read(stream, buffer, parser, ioc_awaitable[ec]);
 				if (ec)
+				{
+					XLOG_ERR << "Session: " << connection_id
+						<< ", LFS batch read error: " << ec.message();
 					co_return;
+				}
 				{
 					auto req = parser.release();
 					co_await lfs_batch_session(stream, req, connection_id,
