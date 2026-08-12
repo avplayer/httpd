@@ -1881,6 +1881,7 @@ inline bool setup_ssl_context(const std::string& httpd_ssl_cert_dir)
     global_ssl_ctx = std::make_shared<ssl::context>(
         ssl::context::tls_server);
 
+    bool loaded = false;
     for (const auto& info : certs)
     {
         boost::system::error_code ec;
@@ -1907,7 +1908,15 @@ inline bool setup_ssl_context(const std::string& httpd_ssl_cert_dir)
         XLOG_INFO << "SSL certificate loaded: "
             << info.cert_file.filename().string()
             << " (domain: " << info.domain << ")";
+        loaded = true;
         break; // Only use the first valid certificate.
+    }
+
+    if (!loaded)
+    {
+        XLOG_ERR << "No usable SSL certificate loaded from: " << cert_dir.string();
+        global_ssl_ctx.reset();
+        return false;
     }
 
     global_ssl_ctx->set_options(
