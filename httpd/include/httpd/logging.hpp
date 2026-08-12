@@ -1305,11 +1305,18 @@ static LONG WINAPI unexpectedExceptionHandling(EXCEPTION_POINTERS* e)
 }
 #endif
 
-inline void signal_handler(int)
+inline void signal_handler(int sig)
 {
 	// 只置位停止标志，避免在信号处理函数中析构（join）日志线程.
 	if (auto obj = global_logger_obj___)
 		obj->stop();
+
+	// SIGTERM 通常用于停止服务：恢复默认处理并重新抛出，让进程正常终止.
+	if (sig == SIGTERM)
+	{
+		std::signal(SIGTERM, SIG_DFL);
+		std::raise(SIGTERM);
+	}
 }
 
 inline void init_logging(const std::string& path = "")
