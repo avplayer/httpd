@@ -875,13 +875,13 @@ inline std::wstring html_escape(std::wstring_view s)
 	return out;
 }
 
-// Truncate a display name to at most 50 characters, appending "..&gt;" when cut.
+// Truncate a display name to at most 50 characters, appending "..>" when cut.
 inline std::wstring truncate_display_name(std::wstring name)
 {
 	if (name.size() > 50)
 	{
 		name.resize(47);
-		name += L"..&gt;";
+		name += L"..>";
 	}
 	return name;
 }
