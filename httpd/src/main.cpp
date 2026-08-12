@@ -499,6 +499,10 @@ fs::path global_path;
 publish_subscribe global_publish_subscribe;
 bool global_quit = false;
 
+// Session counters shared by all stream instantiations of session().
+static int64_t global_connection_id = 0;
+static size_t global_num_connections = 0;
+
 using ranges = std::vector<std::pair<int64_t, int64_t>>;
 
 inline ranges get_ranges(std::string range)
@@ -1370,10 +1374,9 @@ inline std::string format_remote_host(tcp::endpoint endp)
 template <typename Stream>
 inline awaitable_void handle_100_continue(
     Stream& stream,
-    dynamic_request& req_ref,
-    int64_t connection_id)
+    int64_t connection_id,
+    boost::system::error_code& ec)
 {
-    boost::system::error_code ec;
     http::response<http::empty_body> res;
     res.version(11);
     res.result(http::status::continue_);
@@ -1447,11 +1450,8 @@ inline std::string extract_query_string(const std::string& target)
 template <typename Stream>
 inline awaitable_void session(Stream stream)
 {
-	static int64_t static_connection_id = 0;
-	static size_t num_connections = 0;
-
-	int64_t connection_id = static_connection_id++;
-	num_connections++;
+	int64_t connection_id = global_connection_id++;
+	global_num_connections++;
 
 	boost::system::error_code ec;
 
@@ -1468,12 +1468,12 @@ inline awaitable_void session(Stream stream)
 
 	scoped_exit se_quit([&]()
 		{
-			num_connections--;
+			global_num_connections--;
 
 			XLOG_DBG << "Session: "
 				<< connection_id
 				<< ", left, num connection: "
-				<< num_connections
+				<< global_num_connections
 				<< "...";
 		});
 
@@ -1516,7 +1516,7 @@ inline awaitable_void session(Stream stream)
 
 		if (req_ref[http::field::expect] == "100-continue")
 		{
-			co_await handle_100_continue(stream, req_ref, connection_id);
+			co_await handle_100_continue(stream, connection_id, ec);
 			if (ec)
 				co_return;
 		}
@@ -1573,6 +1573,9 @@ inline awaitable_void session(Stream stream)
 		if (beast::websocket::is_upgrade(req))
 			co_return;
 
+		// 在当前请求处理前更新 keep-alive，使单文件模式等分支也能正确复用连接.
+		keep_alive = req.keep_alive();
+
 		if (global_pipe)
 		{
 			co_await pipe_session(stream, req, connection_id);
@@ -1595,8 +1598,6 @@ inline awaitable_void session(Stream stream)
 				continue;
 			co_return;
 		}
-
-		keep_alive = req.keep_alive();
 
 		auto current_path = resolve_request_path(
 			std::string(req.target()), ec);
