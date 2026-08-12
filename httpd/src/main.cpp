@@ -9,6 +9,7 @@
 //
 //
 
+#include <algorithm>
 #include <map>
 #include <deque>
 #include <string>
@@ -1386,6 +1387,26 @@ inline awaitable_void handle_100_continue(
     co_return;
 }
 
+// Return true if `path` is equal to `root` or lies within it
+// (shares `root` as a complete leading path component).
+inline bool path_is_contained_in(const fs::path& path, const fs::path& root)
+{
+    auto p = path.native();
+    auto r = root.native();
+
+    if (p == r)
+        return true;
+
+    if (p.size() <= r.size() ||
+        !std::equal(r.begin(), r.end(), p.begin()))
+        return false;
+
+    // The remainder must begin at a component boundary, otherwise a sibling
+    // directory sharing a common prefix (e.g. "/www" vs "/www2") would pass.
+    auto sep = p[r.size()];
+    return sep == '/' || sep == fs::path::preferred_separator;
+}
+
 // Resolve the request target against global_path and validate it
 // (path traversal protection). On success, returns the canonical path.
 // On failure, returns an empty path and sets ec.
@@ -1405,7 +1426,7 @@ inline fs::path resolve_request_path(
     auto current_path = fs::canonical(
         global_path / boost::nowide::widen(path_part), ec).make_preferred();
 
-    if (ec || !current_path.wstring().starts_with(global_path.wstring()))
+    if (ec || !path_is_contained_in(current_path, global_path))
     {
         ec = boost::asio::error::not_found;
         return {};
