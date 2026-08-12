@@ -715,10 +715,10 @@ inline awaitable_void pipe_session(
 		req.version()
 	};
 
-	res.set(http::field::server, "httpd/1.0");
+	res.set(http::field::server, version_string);
+	res.set(http::field::date, server_date_string());
 	res.set(http::field::content_type, "text/html");
 	res.keep_alive(req.keep_alive());
-	int64_t file_size = -1;
 
 	response_serializer sr(res);
 
@@ -744,9 +744,6 @@ inline awaitable_void pipe_session(
 	{
 		if (buffer_queue.empty())
 		{
-			if (file_size == 0)
-				break;
-
 			notify.expires_after(std::chrono::seconds(60));
 			co_await notify.async_wait(ioc_awaitable[ec]);
 
@@ -774,7 +771,6 @@ inline awaitable_void pipe_session(
 			ioc_awaitable[ec]);
 		if (ec == http::error::need_buffer)
 		{
-			file_size -= p->size();
 			ec = {};
 			continue;
 		}
