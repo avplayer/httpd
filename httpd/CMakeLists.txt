@@ -9,6 +9,7 @@ file(GLOB httpd_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/strutil.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/publish_subscribe.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/lfs.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/httpd/http_date.hpp
 )
 
 file(GLOB httpd_SRCS

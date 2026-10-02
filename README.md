@@ -13,6 +13,7 @@
 - **静态文件服务** — 支持单个文件或整个目录的 HTTP/HTTPS 访问
 - **目录列表** — 自动生成 HTML 目录索引，支持 `?q=json` 查询参数返回 JSON 格式目录列表
 - **断点续传** — 支持 HTTP Range 请求（partial content），可用于视频拖动播放
+- **条件请求** — 响应携带 Last-Modified / ETag，命中缓存返回 304 Not Modified，并支持 If-Range 校验
 - **HTTPS 支持** — 通过 `--ssl-cert-dir` 指定证书目录自动加载证书
 - **自动证书发现** — 自动扫描证书目录，优先使用完整链证书（`fullchain.pem`），并从证书中提取域名
 - **MIME 类型** — 内置常用文件扩展名的 MIME 映射

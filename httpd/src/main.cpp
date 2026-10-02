@@ -18,6 +18,7 @@
 #include <thread>
 #include <tuple>
 #include <type_traits>
+#include <ctime>
 
 #include <fmt/xchar.h>
 #include <fmt/format.h>
@@ -68,6 +69,7 @@ namespace ssl = boost::asio::ssl;
 #include "httpd/strutil.hpp"
 #include "httpd/publish_subscribe.hpp"
 #include "httpd/lfs.hpp"
+#include "httpd/http_date.hpp"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -553,6 +555,75 @@ inline std::string server_date_string()
 	return str;
 }
 
+// Format a time value as an HTTP-date in GMT (RFC 7231 IMF-fixdate).
+inline std::string http_date_string(std::time_t time)
+{
+	auto gmt = gmtime((const time_t*)&time);
+
+	std::string str(64, '\0');
+	auto ret = strftime((char*)str.data(), 64,
+		"%a, %d %b %Y %H:%M:%S GMT", gmt);
+	str.resize(ret);
+
+	return str;
+}
+
+// Strip surrounding whitespace and a weak validator prefix (W/) from an
+// entity-tag, yielding the opaque tag used for weak comparison.
+inline std::string_view strip_etag(std::string_view tag)
+{
+	tag = strutil::string_trim(tag);
+	if (tag.size() >= 2 && (tag[0] == 'W' || tag[0] == 'w') && tag[1] == '/')
+		tag = strutil::string_trim(tag.substr(2));
+	return tag;
+}
+
+// Compare two entity-tags honoring RFC 7232 strong or weak comparison.
+inline bool etag_equal(std::string_view lhs, std::string_view rhs, bool strong)
+{
+	lhs = strutil::string_trim(lhs);
+	rhs = strutil::string_trim(rhs);
+
+	if (strong)
+		return lhs == rhs;
+	return strip_etag(lhs) == strip_etag(rhs);
+}
+
+// Return true if the comma-separated entity-tag list in `header` contains a
+// tag matching `etag`. The value "*" matches any current representation.
+inline bool etag_list_matches(
+	std::string_view header, std::string_view etag, bool strong)
+{
+	header = strutil::string_trim(header);
+	if (header == "*")
+		return true;
+
+	while (!header.empty())
+	{
+		auto comma = header.find(',');
+		auto item = comma == std::string_view::npos
+			? header
+			: header.substr(0, comma);
+
+		if (etag_equal(item, etag, strong))
+			return true;
+
+		if (comma == std::string_view::npos)
+			break;
+		header = header.substr(comma + 1);
+	}
+
+	return false;
+}
+
+// Build a strong entity-tag from the file size and modification time.
+inline std::string make_etag(std::time_t mtime, size_t size)
+{
+	return fmt::format("\"{:x}-{:x}\"",
+		static_cast<long long>(mtime),
+		static_cast<unsigned long long>(size));
+}
+
 inline awaitable_void read_from_stdin()
 {
 	auto ex = co_await net::this_coro::executor;
@@ -793,6 +864,37 @@ inline awaitable_void pipe_session(
 		<< total_bytes;
 
 	co_return;
+}
+
+// Convert a file's last write time into a system clock time_t.
+// Returns false when the timestamp cannot be read.
+inline bool file_modify_time(const fs::path& file, std::time_t& result)
+{
+	boost::system::error_code ec;
+	auto ftime = fs::last_write_time(file, ec);
+	if (ec)
+		return false;
+
+	auto to_time_t = [](auto t) -> std::time_t
+	{
+		using time_type = std::decay_t<decltype(t)>;
+		if constexpr (std::is_same_v<time_type, std::filesystem::file_time_type>)
+		{
+			auto sctp = std::chrono::time_point_cast<
+				std::chrono::system_clock::duration>(t -
+					std::filesystem::file_time_type::clock::now() +
+						std::chrono::system_clock::now());
+			return std::chrono::system_clock::to_time_t(sctp);
+		}
+		else
+		{
+			return t;
+		}
+	};
+
+	result = to_time_t(ftime);
+
+	return true;
 }
 
 inline std::tuple<std::string, fs::path> file_last_write_time(const fs::path& file)
@@ -1342,6 +1444,40 @@ inline std::string select_content_type(const fs::path& file)
     return "text/plain; charset=utf-8";
 }
 
+// Send a 304 Not Modified response carrying the validators so clients can
+// refresh the freshness of their cached entry.
+template <typename Stream>
+inline awaitable_void not_modified_session(
+	Stream& stream,
+	dynamic_request& req,
+	int64_t connection_id,
+	const std::string& etag,
+	const std::string& last_modified)
+{
+	http::response<http::empty_body> res{
+		http::status::not_modified,
+		req.version()
+	};
+
+	res.set(http::field::server, version_string);
+	res.set(http::field::date, server_date_string());
+	if (!etag.empty())
+		res.set(http::field::etag, etag);
+	if (!last_modified.empty())
+		res.set(http::field::last_modified, last_modified);
+	res.keep_alive(req.keep_alive());
+
+	boost::system::error_code ec;
+	co_await http::async_write(stream, res, ioc_awaitable[ec]);
+	if (ec)
+	{
+		XLOG_ERR << "Session: " << connection_id
+			<< ", not modified async_write: " << ec.message();
+	}
+
+	co_return;
+}
+
 template <typename Stream>
 inline awaitable_void file_session(
 	Stream& stream,
@@ -1387,7 +1523,84 @@ inline awaitable_void file_session(
 		co_return;
 	}
 
+	// Build the cache validators for conditional requests.
+	std::time_t mtime = 0;
+	bool has_mtime = file_modify_time(file, mtime);
+	std::string last_modified = has_mtime ? http_date_string(mtime) : std::string();
+	std::string etag = make_etag(mtime, content_length);
+
+	// RFC 7232 preconditions: If-Match and If-Unmodified-Since are evaluated
+	// first and take precedence over the cache validators below.
+	std::string_view if_match = req[http::field::if_match];
+	std::string_view if_unmodified_since = req[http::field::if_unmodified_since];
+	bool precondition_failed = false;
+
+	if (!if_match.empty())
+	{
+		precondition_failed = !etag_list_matches(if_match, etag, true);
+	}
+	else if (has_mtime && !if_unmodified_since.empty())
+	{
+		std::time_t since = 0;
+		if (http_date::parse_http_date(if_unmodified_since, since) && mtime > since)
+			precondition_failed = true;
+	}
+
+	if (precondition_failed)
+	{
+		co_await error_session(stream, req, connection_id,
+			http::status::precondition_failed, "Precondition Failed");
+		co_return;
+	}
+
+	// If-None-Match supersedes If-Modified-Since when both are present.
+	std::string_view if_none_match = req[http::field::if_none_match];
+	std::string_view if_modified_since = req[http::field::if_modified_since];
+	bool not_modified = false;
+
+	if (!if_none_match.empty())
+	{
+		not_modified = etag_list_matches(if_none_match, etag, false);
+	}
+	else if (has_mtime && !if_modified_since.empty())
+	{
+		std::time_t since = 0;
+		if (http_date::parse_http_date(if_modified_since, since) && mtime <= since)
+			not_modified = true;
+	}
+
+	if (not_modified)
+	{
+		co_await not_modified_session(
+			stream, req, connection_id, etag, last_modified);
+		co_return;
+	}
+
 	auto range = get_ranges(req["Range"]);
+
+	// If-Range only allows a partial response while the representation is
+	// unchanged; otherwise fall back to serving the full representation.
+	std::string_view if_range = req[http::field::if_range];
+	if (!range.empty() && !if_range.empty())
+	{
+		bool range_matches = false;
+		if (if_range.front() == '"' ||
+			if_range.starts_with("W/") ||
+			if_range.starts_with("w/"))
+		{
+			range_matches = etag_equal(if_range, etag, true);
+		}
+		else
+		{
+			std::time_t since = 0;
+			range_matches = has_mtime &&
+				http_date::parse_http_date(if_range, since) && mtime <= since;
+		}
+
+		if (!range_matches)
+			range.clear();
+	}
+
 	http::status st = range.empty() ? http::status::ok
 	                                : http::status::partial_content;
 
@@ -1396,6 +1609,10 @@ inline awaitable_void file_session(
 	res.set(http::field::date, server_date_string());
 	res.set(http::field::content_type, select_content_type(file));
 	res.set(http::field::accept_ranges, "bytes");
+	if (!etag.empty())
+		res.set(http::field::etag, etag);
+	if (!last_modified.empty())
+		res.set(http::field::last_modified, last_modified);
 
 	if (!range.empty())
 	{
